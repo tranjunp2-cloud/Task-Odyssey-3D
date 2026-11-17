@@ -5,6 +5,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { STATIONS, FSTATUS } from './data.js';
 import { buildWorld } from './world.js';
 import { PM } from './props.js';
+import { GAMES, openGame, isGameOpen } from './games.js';
 import { Sim, headM, tailM, beamM } from './sim.js';
 
 await Promise.all([document.fonts.load('900 40px Montserrat'), document.fonts.load('600 20px "JetBrains Mono"')]).catch(() => {});
@@ -63,6 +64,8 @@ W.bots.forEach(b => label(`<i>AI</i>${b.label.replace(/^AI /, '')}`, 'b-label', 
 const devPopAnchor = new THREE.Object3D(); W.anim.handoff.isle.add(devPopAnchor); devPopAnchor.position.set(0, 9, 0);
 const qcPopAnchor = new THREE.Object3D(); W.qc.isle.add(qcPopAnchor); qcPopAnchor.position.set(1.5, 9, 0);
 const userPopAnchor = new THREE.Object3D(); W.user.isle.add(userPopAnchor); userPopAnchor.position.set(0, 20, 0);
+const arcadeLabel = label('<b>🎮 GAME ZONE</b><small>chọn mini game để chơi</small>', 'arcade-label', W.arcade.group, 0, () => openArcade());
+arcadeLabel.obj.position.set(2, 9.5, 13);
 const userAlert = label('<b class="u"></b><span class="b"></span>', 'useralert', W.user.isle, 27, () => openStation('user'));
 
 // ---------- simulation ----------
@@ -132,6 +135,13 @@ function follow(tr) {
   flyTo(focusOf(tr), 26, 1.0, Math.atan2(off.x, off.z));
   renderPanel(); panel.classList.add('open'); renderSteps();
 }
+// the GAME ZONE: pick a mini game
+const arcadeChar = { kind: 'arcade', label: 'GAME ZONE', group: W.arcade.room };
+function openArcade() {
+  followed = null; current = null; charSel = arcadeChar; setMode('detail');
+  flyTo(W.arcade.pos, 34, 0.95); renderPanel(); panel.classList.add('open'); renderSteps();
+}
+document.getElementById('game').addEventListener('pick', () => openArcade());
 // a person or an AI bot: what they do, and which tasks they are working on right now
 function openChar(c) {
   followed = null; current = c.key && W.stations[c.key] ? c.key : null; charSel = c; setMode('detail');
@@ -143,6 +153,16 @@ function openChar(c) {
 // ---------- panel ----------
 const fmt = s => { const m = Math.floor(s / 60), x = Math.floor(s % 60); return `${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}`; };
 function renderPanel() {
+  if (mode === 'detail' && charSel?.kind === 'arcade') {
+    if (panel.querySelector('.games')) return;   // keep the list still while the player reads it
+    panel.innerHTML = `
+      <button class="x" data-act="close" aria-label="Đóng">×</button>
+      <div class="kicker">Khu giải trí · cạnh quán cà phê</div><h2>🎮 GAME ZONE</h2>
+      <p>Nghỉ tay vài phút: chọn một mini game để chơi. Kỷ lục được lưu trên trình duyệt của bạn.</p>
+      <ul class="games">${GAMES.map(g => `<li><button data-game="${g.id}" style="--gc:${g.color}"><span class="gi">${g.icon}</span><span><b>${g.name}</b><small>${g.desc}</small></span><em>Chơi ▶</em></button></li>`).join('')}</ul>
+      <div class="nav"><button data-act="map">Bản đồ</button></div>`;
+    return;
+  }
   if (mode === 'detail' && charSel?.kind === 'agent') {
     const c = charSel, P = c.plot, f = sim.features[P.i], tr = sim.trucks.find(t => t.task?.feature === f), j = sim.island.find(j => j.f === f);
     panel.innerHTML = `
@@ -247,7 +267,8 @@ const roleOf = c => c.kind === 'bot' ? `Bot AI của ${W.stations[c.key]?.name |
 
 panel.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.truck) follow(sim.trucks[+b.dataset.truck]);
+  if (b.dataset.game) openGame(b.dataset.game);
+  else if (b.dataset.truck) follow(sim.trucks[+b.dataset.truck]);
   else if (b.dataset.go) openStation(b.dataset.go);
   else if (b.dataset.act === 'map' || b.dataset.act === 'close') goOverview();
 });
@@ -296,7 +317,7 @@ document.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => { setSp
 addEventListener('keydown', e => { if (e.target.closest?.('input,textarea')) return; const SP = [1, 2, 4], i = SP.indexOf(speed);
   if (e.key === ']' || e.key === '+' || e.key === '=') setSpeed(SP[Math.min(2, i + 1)]); if (e.key === '[' || e.key === '-') setSpeed(SP[Math.max(0, i - 1)]); });
 $('#btn-night').onclick = e => { nightT = nightT ? 0 : 1; e.currentTarget.textContent = nightT ? '☀' : '🌙'; };
-addEventListener('keydown', e => { if (e.key === 'Escape') goOverview(); if (e.key === ' ') { setPaused(!paused); e.preventDefault(); } });
+addEventListener('keydown', e => { if (isGameOpen()) return; if (e.key === 'Escape') goOverview(); if (e.key === ' ') { setPaused(!paused); e.preventDefault(); } });
 
 // ---------- click on 3D objects ----------
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(); let downAt = null;
@@ -307,6 +328,7 @@ labels.domElement.addEventListener('pointerup', e => {
   const r = renderer.domElement.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
   ray.setFromCamera(ndc, camera);
   const tr = truckAt(); if (tr) return follow(tr);
+  if (ray.intersectObject(W.arcade.group, true)[0]) return openArcade();
   const c = charAt(); if (c) return openChar(c);
   const k = stationAt(); if (k) openStation(k);
 });
@@ -344,7 +366,7 @@ labels.domElement.addEventListener('pointermove', e => {
   if (e.buttons || performance.now() - hoverT < 60) return; hoverT = performance.now();
   const r = renderer.domElement.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  const car = truckAt() || charAt(), k = car ? null : stationAt();
+  const car = truckAt() || charAt() || ray.intersectObject(W.arcade.group, true)[0], k = car ? null : stationAt();
   if (k !== hoverKey) { if (hoverKey) stLabels[hoverKey].el.classList.remove('hover'); if (k) stLabels[k].el.classList.add('hover'); hoverKey = k; }
   labels.domElement.style.cursor = car || k ? 'pointer' : '';
 });
