@@ -20,7 +20,7 @@ export const STATIONS = [
     pains: ['Mỗi người hiểu vấn đề một kiểu', 'Không có tiêu chí nên duyệt theo cảm giác'],
     tip: 'Viết 1 câu vấn đề + 3 tiêu chí nghiệm thu, cho PM xác nhận.' },
   { key: 'design', n: '04', name: 'Xưởng Design', short: 'Design', anchor: [0, -26],
-    desc: 'Wireframe → UI → prototype. Mỗi ô artboard là một tính năng, chấm màu là trạng thái.',
+    desc: 'Wireframe → UI → prototype. 12 bệ làm việc F01–F12, mỗi bệ có một Agent AI riêng: vẽ UI phủ dần lên wireframe khi designer làm task, quét soát khi chờ duyệt, ăn mừng khi live, báo động khi user gặp lỗi.',
     std: 'Wireframe trước, UI sau, dùng component từ design system.', real: 'Vẽ UI luôn, v1 → v7 vẫn chưa ưng.',
     pains: ['v1 → v7 vẫn chưa ưng', 'Thiếu design system nên mỗi màn một kiểu'],
     tip: 'Chốt luồng ở wireframe trước khi lên màu.' },

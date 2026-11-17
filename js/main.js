@@ -50,7 +50,14 @@ for (const s of STATIONS) {
   scene.add(anchor);
   stLabels[s.key] = label(`<span class="n">${s.n}</span><b>${s.name}</b><em class="cnt"></em>`, 'st-label', anchor, y, () => openStation(s.key));
 }
-const plotLabels = W.plots.map(p => { const a = new THREE.Object3D(); a.position.copy(p.pos); scene.add(a); return label(`<b>${p.id}</b> ${p.name} <i class="dot gray"></i>`, 'f-label', a, 1.2); });
+// feature workbenches: each feature has its own design agent
+const plotsCenter = W.plots.reduce((a, p) => a.add(p.pos), new THREE.Vector3()).multiplyScalar(1 / W.plots.length); W.plotsCenter = plotsCenter;
+const AGENTS = ['Pixel', 'Grid', 'Kern', 'Hue', 'Flex', 'Vector', 'Nova', 'Bezier', 'Glyph', 'Layer', 'Frame', 'Mono'];
+const AGENT_DO = { todo: 'đang sạc · chờ task', doing: 'đang vẽ wireframe → UI', redo: 'vẽ lại theo góp ý của dev', review: 'chờ duyệt · tự soát UI', dev: 'hỗ trợ dev build', qa: 'soát Design QA', qc: 'theo dõi QC test', done: 'UI đã live ✓', improve: 'đọc số liệu để cải tiến', bug: 'user báo lỗi! đang tìm nguyên nhân' };
+const agentChars = W.plots.map(p => ({ kind: 'agent', label: `Agent ${AGENTS[p.i]}`, group: p.agent.g, key: 'design', plot: p }));
+const plotLabels = W.plots.map(p => { const a = new THREE.Object3D(); a.position.copy(p.labelPos); scene.add(a);
+  const l = label(`<span class="av" style="--c:${p.col}">${AGENTS[p.i][0]}</span><div><b>${p.id} · ${p.name}</b><small></small><i class="bar"><u></u></i></div>`, 'f-label', a, 0.6, () => openChar(agentChars[p.i]));
+  return { ...l, small: l.el.querySelector('small'), bar: l.el.querySelector('u') }; });
 W.people.filter(p => p.label).forEach(p => label(p.label, 'p-label', p.group, 2.1));
 W.bots.forEach(b => label(`<i>AI</i>${b.label.replace(/^AI /, '')}`, 'b-label', b.hover, 2.15));
 const devPopAnchor = new THREE.Object3D(); W.anim.handoff.isle.add(devPopAnchor); devPopAnchor.position.set(0, 9, 0);
@@ -100,13 +107,19 @@ function goOverview() {
 }
 function stationFocus(key) {
   const st = W.stations[key];
+  if (key === 'design') {   // the 12 agent workbenches + the studio behind the road
+    const pc = W.plots.reduce((a, p) => a.add(p.pos), new THREE.Vector3()).multiplyScalar(1 / W.plots.length);
+    const p = st.pos.clone().lerp(pc, 0.7), dir = st.right.clone().addScaledVector(st.tan, -0.35).normalize();
+    return { p, az: Math.atan2(dir.x, dir.z), dist: 66 };
+  }
   if (key === 'user') return { p: W.user.pos.clone().setY(16), az: -0.55, dist: 112 };
   if (key === 'dev' || key === 'qc' || !W.rooms[key]) { const dir = st.right.clone().addScaledVector(st.tan, -0.45).normalize(); return { p: st.pos.clone().setY(key === 'qc' ? 7 : 0), az: Math.atan2(dir.x, dir.z), dist: key === 'qc' ? 66 : 40 }; }
   // look at the department from the road side: lot + open front of the room in frame
   const c = new THREE.Vector3(); W.rooms[key].g.getWorldPosition(c);
+  if (key === 'task') { const lot = W.parks.task.group.localToWorld(new THREE.Vector3(-12, 0, 11)); c.lerp(lot, 0.8); }   // keep the carport in frame too
   const p = st.pos.clone().lerp(c, 0.55), toRoad = st.pos.clone().sub(c).setY(0).normalize();
   const dir = toRoad.addScaledVector(st.tan, -0.5).normalize();
-  return { p, az: Math.atan2(dir.x, dir.z), dist: { design: 50, task: 50, research: 48, handoff: 52 }[key] || 42 };
+  return { p, az: Math.atan2(dir.x, dir.z), dist: { design: 50, task: 58, research: 48, handoff: 52 }[key] || 42 };
 }
 function openStation(key) {
   followed = null; current = key; charSel = null; setMode('detail');
@@ -130,6 +143,19 @@ function openChar(c) {
 // ---------- panel ----------
 const fmt = s => { const m = Math.floor(s / 60), x = Math.floor(s % 60); return `${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}`; };
 function renderPanel() {
+  if (mode === 'detail' && charSel?.kind === 'agent') {
+    const c = charSel, P = c.plot, f = sim.features[P.i], tr = sim.trucks.find(t => t.task?.feature === f), j = sim.island.find(j => j.f === f);
+    panel.innerHTML = `
+      <button class="x" data-act="close" aria-label="Đóng">×</button>
+      <div class="kicker">Agent thiết kế · Xưởng Design</div>
+      <h2><span class="av big" style="--c:${P.col}">${AGENTS[P.i][0]}</span> ${c.label}</h2>
+      <p>Phụ trách <b>${f.id} · ${f.name}</b>. Agent vẽ UI phủ dần lên wireframe khi designer đang làm task, tự soát khi chờ duyệt, ăn mừng khi tính năng live và báo động khi user gặp lỗi.</p>
+      <div class="now"><b>Đang làm</b>${AGENT_DO[f.status] || FSTATUS[f.status][0]}<small>Tiến độ UI ${Math.round(P.prog * 100)}% · trạng thái: ${FSTATUS[f.status][0]}</small></div>
+      <div class="badges"><span>Dev trả về: ${f.redo}</span>${f.userBug ? `<span class="hot">🆘 ${f.bugMsg} (${f.reports || 1} báo cáo)</span>` : ''}</div>
+      <h4>Task của tính năng này</h4><ul class="tasks">${tr ? `<li><button data-truck="${tr.i}"><i class="dot ${sim.tone(tr)}"></i><b>#${tr.task.no}</b> ${tr.task.feature.name}<span>${tr.status}</span></button></li>` : j ? `<li><button><i class="dot yellow"></i><b>#${j.t.no}</b> đang ở đảo ${j.phase === 'qc' || j.phase === 'toqc' ? 'QC' : 'Dev'}<span>${j.phase}</span></button></li>` : `<li class="muted">${f.status === 'todo' ? 'Chưa có xe nhận task này' : 'Không có xe nào đang chở tính năng này'}</li>`}</ul>
+      <div class="nav"><button data-go="design">Xem Xưởng Design</button><button data-act="map">Bản đồ</button></div>`;
+    return;
+  }
   if (mode === 'detail' && charSel) {
     const c = charSel, s = c.key && W.stations[c.key], here = s ? sim.at(c.key) : [];
     const working = c.key === 'dev' || c.key === 'qc' ? islandJobs(c.key) :
@@ -217,7 +243,7 @@ const ROLE = {
   'qc:QC Lead': 'Quyết định pass hay fail. Pass thì bật đèn hải đăng release.',
 };
 const roleOf = c => c.kind === 'bot' ? `Bot AI của ${W.stations[c.key]?.name || 'phòng'}: hỗ trợ con người làm nhanh hơn, không thay quyết định của họ.`
-  : ROLE[`${c.key}:${c.label}`] || (c.key === 'cafe' ? 'Đang nghỉ giải lao ở quán cà phê giữa đảo.' : `Thành viên của ${W.stations[c.key]?.name || 'đội'}, đang hỗ trợ các task ở đây.`);
+  : ROLE[`${c.key}:${c.label}`] || (c.key === 'cafe' ? 'Pha cà phê cho designer ghé nghỉ sau mỗi lần bàn giao.' : `Thành viên của ${W.stations[c.key]?.name || 'đội'}, đang hỗ trợ các task ở đây.`);
 
 panel.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -243,7 +269,7 @@ function setView(v) {
     let { p, az, dist } = stationFocus(current), pol = 0.98;
     if (v === 'left') az += 0.95; if (v === 'right') az -= 0.95;
     if (v === 'top') { pol = 0.37; dist *= 1.05; }
-    if (v === 'close') { p = new THREE.Vector3(); (W.rooms[current]?.g || W.anim.handoff.isle).getWorldPosition(p); p.y = 0; dist = current === 'dev' ? 24 : 17; pol = 0.95; }
+    if (v === 'close') { p = new THREE.Vector3(); (charSel?.kind === 'agent' ? charSel.plot.group : W.rooms[current]?.g || W.anim.handoff.isle).getWorldPosition(p); p.y = 0; dist = current === 'dev' ? 24 : charSel?.kind === 'agent' ? 14 : 17; pol = 0.95; }
     flyTo(p, dist, pol, az, 1.1);
   } else if (mode === 'follow' && followed) {
     const r = followed.g.rotation.y, back = Math.atan2(-Math.cos(r), Math.sin(r));   // camera behind the car
@@ -296,14 +322,15 @@ for (const c of chars) { c.group.userData.char = c;
   for (let o = c.group; o && !c.key; o = o.parent) { if (o === W.qc.isle) c.key = 'qc'; else if (o === W.anim.handoff.isle) c.key = 'dev'; else if (o === W.cafe) c.key = 'cafe';
     else { const r = Object.entries(W.rooms).find(([, r]) => r.g === o); if (r) c.key = r[0]; else { const s = STATIONS.find(s => W.stations[s.key].group === o); if (s) c.key = s.key; } } } }
 function charAt() {
-  const hit = ray.intersectObjects(chars.map(c => c.group), true)[0];
+  const all = [...chars, ...agentChars], hit = ray.intersectObjects(all.map(c => c.group).concat(W.plots.map(p => p.group)), true)[0];
+  if (hit) for (let o = hit.object; o; o = o.parent) { const P = W.plots.find(p => p.group === o); if (P) return agentChars[P.i]; }
   if (hit) for (let o = hit.object; o; o = o.parent) if (o.userData.char) return o.userData.char;
   return null;
 }
 const selRing = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.72, 32), new THREE.MeshBasicMaterial({ color: '#ff5a1f', transparent: true, opacity: .9, depthWrite: false }));
 selRing.rotation.x = -Math.PI / 2; selRing.visible = false; scene.add(selRing);
 // which department is under the pointer: rooms first, then the dev island, then the rest of a station
-const isle = W.anim.handoff.isle, roomList = Object.entries(W.rooms).map(([k, r]) => [k, r.g]);
+const isle = W.anim.handoff.isle, roomList = Object.entries(W.rooms).filter(([k]) => W.stations[k]).map(([k, r]) => [k, r.g]);
 function stationAt() {
   const h = ray.intersectObjects([...roomList.map(r => r[1]), isle, W.qc.isle, W.user.isle], true)[0];
   if (h) { for (let o = h.object; o; o = o.parent) { if (o === isle) return 'dev'; if (o === W.qc.isle) return 'qc'; if (o === W.user.isle) return 'user'; const r = roomList.find(x => x[1] === o); if (r) return r[0]; } }
@@ -370,7 +397,7 @@ renderer.setAnimationLoop(() => {
   scene.background.copy(DAY_BG).lerp(NIGHT_BG, night); scene.fog.color.copy(scene.background);
   hemi.intensity = THREE.MathUtils.lerp(1.3, 0.13, night); scene.environmentIntensity = THREE.MathUtils.lerp(0.35, 0.02, night);
   W.night.screens.forEach(m => m.emissiveIntensity = 0.85 + night * 0.6);
-  W.night.roomLights.forEach(l => l.intensity = night * 45); W.lighthouseLight.intensity = night * 120; PM.strip.emissiveIntensity = 0.3 + night * 2.5; W.tick(sim.t, camera); sun.intensity = THREE.MathUtils.lerp(1.7, 0.1, night);
+  W.night.roomLights.forEach(l => l.intensity = night * 45); W.designNight(night); W.lighthouseLight.intensity = night * 120; PM.strip.emissiveIntensity = 0.3 + night * 2.5; W.tick(sim.t, camera); W.tickPlots(sim.t, sim.features); sun.intensity = THREE.MathUtils.lerp(1.7, 0.1, night);
   sun.color.setRGB(1, 1 - night * 0.2, 1 - night * 0.05);
   W.mats.lamp.emissiveIntensity = night * 2.4; W.mats.pool.opacity = night * 0.85; W.night.windows.forEach(m => m.emissiveIntensity = night * 1.3);
   W.mats.glow.emissiveIntensity = 0.4 + night * 1.6; headM.emissiveIntensity = night * 3; tailM.emissiveIntensity = night * 2.5; beamM.opacity = night * 0.5; W.ocean.uniforms.uNight.value = night;
@@ -383,7 +410,9 @@ renderer.setAnimationLoop(() => {
   if (charSel) { charSel.group.getWorldPosition(selRing.position); selRing.position.y += 0.08 - (charSel.kind === 'person' ? charSel.group.position.y : 0); selRing.scale.setScalar(1 + 0.08 * Math.sin(performance.now() / 200)); } selRing.visible = !!charSel;
   // chips + labels
   const camD = camera.position.distanceTo(controls.target);
-  body.classList.toggle('far', camD > 120);
+  body.classList.toggle('far', camD > 120); body.classList.toggle('mid', camD > 40);
+  // the 12 feature cards only show when zoomed in on the design field
+  body.classList.toggle('show-feats', camD < 90 && controls.target.distanceTo(W.plotsCenter) < 40);
   for (const c of chips) {
     const tr = c.tr, txt = tr.task ? `#${tr.task.no}` : 'trống', st = tr.status, tone = sim.tone(tr), key = txt + st + tone + (tr === followed);
     if (key !== c.last) { c.id.textContent = txt; c.txt.textContent = st; c.dot.className = `dot ${tone}`; c.el.classList.toggle('on', tr === followed); c.last = key; }
@@ -391,8 +420,8 @@ renderer.setAnimationLoop(() => {
   if ((statTick += rdt) > 0.25) {
     statTick = 0;
     for (const s of STATIONS) { const n = sim.at(s.key).length, e = stLabels[s.key].el.querySelector('.cnt'); e.textContent = n || ''; e.style.display = n ? '' : 'none'; stLabels[s.key].el.classList.toggle('on', s.key === current); }
-    sim.features.forEach((f, i) => { const [txt, tone] = FSTATUS[f.status]; const d = plotLabels[i].el.querySelector('.dot'); if (!d.classList.contains(tone)) d.className = `dot ${tone}`; plotLabels[i].el.title = txt;
-      const want = f.status === 'done' ? f.plot.ui : f.plot.wire; if (f.plot.art.material.map !== want) { f.plot.art.material.map = want; f.plot.art.material.needsUpdate = true; } });
+    sim.features.forEach((f, i) => { const L = plotLabels[i], tone = FSTATUS[f.status][1], txt = `${AGENTS[i]} · ${AGENT_DO[f.status] || FSTATUS[f.status][0]}`;
+      if (L.small.textContent !== txt) L.small.textContent = txt; L.el.dataset.tone = tone; L.bar.style.width = Math.round(W.plots[i].prog * 100) + '%'; });
     { const n = sim.openBugs; userAlert.el.querySelector('.u').textContent = `👥 ${sim.users.toLocaleString('vi-VN')} user`; userAlert.el.querySelector('.b').textContent = n ? `⚠ ${n} lỗi · ${sim.openReports} báo cáo` : '✓ ổn định'; userAlert.el.classList.toggle('hot', n > 0); }
     $('#st-active').textContent = sim.trucks.filter(t => t.task).length; $('#st-shipped').textContent = sim.stats.shipped; $('#st-rej').textContent = sim.stats.rejected; $('#st-bounce').textContent = sim.stats.bounced; $('#st-sprint').textContent = sim.stats.sprint;
   }

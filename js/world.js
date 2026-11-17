@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { STATIONS, FEATURES } from './data.js';
-import { CL, CH, CW, PM, room, desk, chair, plant, tallPlant, wallBoard, bookshelf, sofa, roundTable, bigScreen, phoneStand, tripod, boxes, coffeeBar, bot, bots, tickBots, fileCard, screens, roomLights } from './props.js';
+import { CL, CH, CW, PM, room, desk, chair, plant, tallPlant, wallBoard, bookshelf, sofa, roundTable, bigScreen, phoneStand, tripod, boxes, coffeeBar, bot, bots, tickBots, fileCard, screens, roomLights, miniAgent } from './props.js';
 export { CL, CH, TRAILER_TOP } from './props.js';
 
 export const COL = { dark: '#0b1a24', cream: '#efede8', ink: '#0a0f12', orange: '#ff5a1f', sea: '#0e3b5c' };
@@ -188,14 +188,19 @@ export function buildWorld(scene) {
     person('PM', '#3fb5ff', r.in, 2.6, -0.6); person('', '#e9b949', r.in, -2.2, 2.25, { seat: true });
     bot(r.in, 1.2, -1.6, 'AI viết brief', 'Brief: mục tiêu, người dùng, tiêu chí nghiệm thu');
     // waiting lot: empty cars park here until there is a task for them
-    const PARK = [0, 1, 2, 3].map(k => new THREE.Vector3(-13, 0, 6.2 + k * 2.5));
-    const pad = box(13, 0.06, 11.4, M.pad, -14, 0.03, 9.9, g); pad.receiveShadow = true;
+    // carport ("nhà xe"): 4 open bays with EV chargers, set back from the curve
+    const LX = -12, LZ = 7.4, SP = 2.6, PARK = [0, 1, 2, 3].map(k => new THREE.Vector3(LX, 0, LZ + k * SP));
+    const zMin = LZ - 1.4, zMax = LZ + 3 * SP + 1.4, zc = (zMin + zMax) / 2;
+    const pad = box(7, 0.06, zMax - zMin + 0.6, new THREE.MeshStandardMaterial({ color: '#4a5058', roughness: .9 }), LX, 0.035, zc, g); pad.receiveShadow = true;
     const lineM = new THREE.MeshBasicMaterial({ color: '#f7f3ea' });
-    for (let k = 0; k <= 4; k++) box(5.2, 0.02, 0.1, lineM, -12.6, 0.07, 4.95 + k * 2.5, g);
-    box(0.1, 0.02, 10.1, lineM, -10.05, 0.07, 9.95, g);
-    board('BÃI CHỜ TASK', '4 chỗ · P', 3.4, -14, 2.6, 16.1, g); for (const dx of [-1.3, 1.3]) box(0.1, 1.9, 0.1, M.pole, -14 + dx, 0.95, 16, g);
-    W.parks = { task: { slots: PARK, group: g } };
-    { g.updateMatrixWorld(true); const c = g.localToWorld(new THREE.Vector3(-14, 0, 10)); excl.push([c.x, c.z, 10]); const c2 = g.localToWorld(new THREE.Vector3(0, 0, -5)); excl.push([c2.x, c2.z, 8]); }
+    for (let k = 0; k <= 4; k++) box(4.6, 0.02, 0.1, lineM, LX, 0.075, LZ - SP / 2 + k * SP, g);
+    for (let k = 0; k < 4; k++) { const n = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ map: signTex('P', '', '#3fb5ff'), transparent: true, opacity: .85 })); n.rotation.x = -Math.PI / 2; n.position.set(LX + 1.5, 0.08, LZ + k * SP); g.add(n); }
+    // EV chargers on the bay lines
+    const chgM = new THREE.MeshStandardMaterial({ color: '#2bd47d', emissive: '#2bd47d', emissiveIntensity: .8 });
+    for (let k = 0; k < 3; k++) { const z = LZ + SP / 2 + k * SP; box(0.28, 1.1, 0.28, M.white, LX - 1.1, 0.55, z, g); box(0.3, 0.12, 0.3, chgM, LX - 1.1, 0.95, z, g); }
+    board('NHÀ XE', 'chờ task · 4 chỗ', 3.2, LX - 4.6, 2.6, zc, g, -Math.PI / 2); for (const dz of [-1.2, 1.2]) box(0.1, 1.9, 0.1, M.pole, LX - 4.65, 0.95, zc + dz, g);
+    W.parks = { task: { slots: PARK, group: g, aisleX: LX + 3.3 } };
+    { g.updateMatrixWorld(true); const c = g.localToWorld(new THREE.Vector3(LX, 0, zc)); excl.push([c.x, c.z, 9]); obst.push([c.x, c.z, 7]); const c2 = g.localToWorld(new THREE.Vector3(0, 0, -5)); excl.push([c2.x, c2.z, 8]); }
     W.anim.gantry = { trolley, cables, spreader, TOP, stackZ: -5, laneZ: LANE, grabY: 0.96 + 3 * CH + 0.08 };
     obstL(g, 0, 3.2, 3.4); obstL(g, 0, -5, 8);
   }
@@ -239,16 +244,44 @@ export function buildWorld(scene) {
     tallPlant(r.in, 4, -2.9); plant(r.in, -3.8, 2.9);
     person('Designer', '#ff5a1f', r.in, -1.2, 2.65, { seat: true }); person('', '#7b5cff', r.in, 2.3, 2.65, { seat: true });
     bot(r.in, 3.6, 0.2, 'AI Copilot', 'Gợi ý layout, đặt tên layer, kiểm tra tương phản');
-    const fenceM = new THREE.MeshStandardMaterial({ color: '#7c6b55' });
+    // 12 feature workbenches, each with its own design agent painting the UI over the wireframe
+    const AG_COL = ['#ff5a1f', '#3fb5ff', '#7b5cff', '#2bd47d', '#e9b949', '#e86a92', '#1f6f8b', '#ff9f5a', '#5ff3ff', '#b5452d', '#a3d65c', '#c9a6ff'];
+    const baseM = new THREE.MeshStandardMaterial({ color: '#f4f2ee', roughness: .7 }), frameM = new THREE.MeshStandardMaterial({ color: '#1d2329', roughness: .5 });
     FEATURES.forEach((f, i) => {
-      const c = i % 4, rr = Math.floor(i / 4), x = -14.5 + c * 9.6, z = -9 - rr * 7.4;
-      box(8.4, 0.2, 6, M.soil, x, 0.1, z, g);
+      const c = i % 4, rr = Math.floor(i / 4), x = -14.5 + c * 9.6, z = -9 - rr * 7.4, col = AG_COL[i];
+      const pg = new THREE.Group(); pg.position.set(x, 0, z); g.add(pg);
+      const edgeM = new THREE.MeshStandardMaterial({ color: '#9aa3a8', emissive: '#9aa3a8', emissiveIntensity: .25, roughness: .5 });
+      box(8.7, 0.16, 6.3, edgeM, 0, 0.08, 0, pg); box(8.4, 0.18, 6.0, baseM, 0, 0.17, 0, pg);
+      for (const [dx, dz, w, d] of [[0, -2.62, 7.7, .1], [0, 2.62, 7.7, .1], [-3.8, 0, .1, 5.34], [3.8, 0, .1, 5.34]]) box(w, 0.08, d, frameM, dx, 0.3, dz, pg);
       const wire = artTex(i, false), ui = artTex(i, true);
-      const art = plane(7.4, 5.1, new THREE.MeshStandardMaterial({ map: wire, roughness: .8 }), g); art.rotation.x = -Math.PI / 2; art.position.set(x, 0.22, z);
-      for (const [dx, dz, w, d] of [[0, -3, 8.4, .08], [0, 3, 8.4, .08], [-4.2, 0, .08, 6], [4.2, 0, .08, 6]]) box(w, 0.35, d, fenceM, x + dx, 0.37, z + dz, g);
+      const art = plane(7.4, 5.1, new THREE.MeshStandardMaterial({ map: wire, roughness: .8, emissive: '#ffffff', emissiveMap: wire, emissiveIntensity: 0 }), pg); art.rotation.x = -Math.PI / 2; art.position.set(0, 0.27, 0);
+      const uiM = new THREE.MeshStandardMaterial({ map: ui, roughness: .6, emissive: '#ffffff', emissiveMap: ui, emissiveIntensity: .12 });
+      const paint = plane(7.4, 5.1, uiM, pg); paint.rotation.x = -Math.PI / 2; paint.position.set(0, 0.285, 0); paint.visible = false;
+      const edgeGlow = box(0.07, 0.03, 5.1, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: .9, blending: THREE.AdditiveBlending, depthWrite: false }), 0, 0.3, 0, pg);
+      const scanBar = box(0.12, 0.03, 5.1, new THREE.MeshBasicMaterial({ color: '#ffd84d', transparent: true, opacity: .8, blending: THREE.AdditiveBlending, depthWrite: false }), 0, 0.31, 0, pg); scanBar.visible = false;
+      const glitch = plane(7.4, 5.1, new THREE.MeshBasicMaterial({ color: '#ff3b1f', transparent: true, opacity: 0, depthWrite: false }), pg); glitch.rotation.x = -Math.PI / 2; glitch.position.set(0, 0.3, 0);
+      // charging pad in the corner
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 0.12, 24), M.steel); pad.position.set(3.25, 0.32, 2.15); pg.add(pad);
+      const padRing = new THREE.Mesh(new THREE.TorusGeometry(0.48, 0.04, 6, 28), new THREE.MeshBasicMaterial({ color: col })); padRing.rotation.x = Math.PI / 2; padRing.position.set(3.25, 0.39, 2.15); pg.add(padRing);
+      const agent = miniAgent(col); agent.g.scale.setScalar(1.35); pg.add(agent.g); agent.g.position.set(3.25, 0.9, 2.15);
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.07, 1, 8, 1, true), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: .75, blending: THREE.AdditiveBlending, depthWrite: false })); pg.add(beam); beam.visible = false;
+      const agentPool = plane(3.2, 3.2, new THREE.MeshBasicMaterial({ map: poolTex, color: col, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }), pg); agentPool.rotation.x = -Math.PI / 2; agentPool.position.y = 0.33;
       const wp = new THREE.Vector3(x, 0, z); g.localToWorld(wp);
-      W.plots.push({ id: f[0], name: f[1], art, wire, ui, pos: wp }); excl.push([wp.x, wp.z, 6]);
+      const lp = new THREE.Vector3(0, 0, 3.6); pg.localToWorld(lp);
+      W.plots.push({ id: f[0], name: f[1], i, col, group: pg, art, wire, ui, paint, uiM, agentPool, edgeM, edgeGlow, scanBar, glitch, agent, beam, pos: wp, labelPos: lp, prog: i >= 8 ? 1 : 0, mode: null });
+      excl.push([wp.x, wp.z, 6]);
     });
+    // night shift: floodlight masts around the field + two real lights over it, so the agents keep working after dark
+    const flood = new THREE.MeshStandardMaterial({ color: '#fff7e0', emissive: '#fff2cc', emissiveIntensity: 0 });
+    const fieldPools = [];
+    for (const [x, z] of [[-19.6, -5.4], [19.6, -5.4], [-19.6, -20.2], [19.6, -20.2], [0, -5.4], [0, -20.2]]) {
+      box(0.22, 7.5, 0.22, M.pole, x, 3.75, z, g); const head = box(1.4, 0.3, 0.6, M.steel, x, 7.55, z, g); head.rotation.y = 0.3;
+      box(1.3, 0.08, 0.5, flood, x, 7.38, z, g);
+      const pl = plane(16, 16, new THREE.MeshBasicMaterial({ map: poolTex, color: '#ffe6b8', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }), g); pl.rotation.x = -Math.PI / 2; pl.position.set(x, 0.36, z); fieldPools.push(pl.material);
+      obstL(g, x, z, 1.2); }
+    const fieldLights = [[-9.6, -12.8], [9.6, -12.8]].map(([x, z]) => { const l = new THREE.PointLight('#ffe9c4', 0, 34, 1.3); l.position.set(x, 9, z); g.add(l); return l; });
+    W.designNight = n => { flood.emissiveIntensity = n * 3; fieldPools.forEach(m => m.opacity = n * 0.35); fieldLights.forEach(l => l.intensity = n * 260);
+      for (const P of W.plots) { P.art.material.emissiveIntensity = n * 0.35; P.uiM.emissiveIntensity = 0.12 + n * 0.75; P.agentPool.material.opacity = n * 0.55; } };
   }
 
   // ---------- 03 define: meeting room with a sticky-note wall (inside the loop, across from the research lot) ----------
@@ -463,6 +496,25 @@ export function buildWorld(scene) {
       g.updateMatrixWorld(true); const c = g.localToWorld(new THREE.Vector3(v.x, 0, zc)); excl.push([c.x, c.z, 6 + v.rows]);
     } }
 
+  // ---------- roadside café on the empty stretch after the port: empty cars stop here ~10 s before going back for a task ----------
+  { const d = (frames.handoff.d + 28) % L, f = W.at(d), g = new THREE.Group(); g.position.copy(f.pos); g.rotation.y = Math.atan2(-f.tan.z, f.tan.x); scene.add(g);
+    W.cafeD = d;
+    const r = room(g, { x: 0, z: 13.6, w: 9.4, d: 6.4, back: 1, accent: '#b5452d', board: sign('CÀ PHÊ', '☕ nghỉ 10 giây') });
+    r.spots = [[-2.2, -0.15], [2.3, -0.15], [0.2, -1.6]].map(([x, z]) => new THREE.Vector3(x, 0.22, z));
+    coffeeBar(r.in, -1.6, 2.1, Math.PI); coffeeBar(r.in, 0, 2.1, Math.PI);
+    person('Barista', '#6d5640', r.in, -0.8, 2.75);
+    roundTable(r.in, -2.2, -0.9, 0.55, 2, '#b5452d'); roundTable(r.in, 2.3, -0.9, 0.55, 2, '#b5452d');
+    tallPlant(r.in, 4.2, 2.6); plant(r.in, -4.2, -2.6); bookshelf(r.in, r.leftX + 0.22, 0.4, -Math.PI / 2, 2);
+    // striped awning over the open front
+    for (let i = 0; i < 7; i++) { const a = box(1.3, 0.08, 0.75, i % 2 ? M.white : M.orange, -3.9 + i * 1.3, 2.0, -3.6, r.g); a.rotation.x = -0.35; }
+    W.rooms.cafe = r; W.cafe = r.g;
+    const slots = [0, 1].map(k => new THREE.Vector3(0, 0, 4.6 + k * 2.5));
+    const pad = box(5.6, 0.06, 5.4, M.pad, 0, 0.03, 5.85, g); pad.receiveShadow = true;
+    const lineM = new THREE.MeshBasicMaterial({ color: '#f7f3ea' }); for (let k = 0; k <= 2; k++) box(5.2, 0.02, 0.09, lineM, 0, 0.07, 3.35 + k * 2.5, g);
+    W.parks.cafe = { slots, group: g }; W.vlots.cafe = { x: 0, side: 1, rows: 2, slots, group: g, aisleX: 3.2 };
+    g.updateMatrixWorld(true); for (const [x, z, rr] of [[0, 5.85, 8], [0, 13.6, 7]]) { const c = g.localToWorld(new THREE.Vector3(x, 0, z)); excl.push([c.x, c.z, rr]); }
+  }
+
   // ---------- street lamps: one every ~11 units, on whichever side of the road is free ----------
   { const far = ([ox, oz, r], x, z) => (ox - x) ** 2 + (oz - z) ** 2 >= r * r;
     const free = (x, z) => obst.every(o => far(o, x, z)) && excl.slice(nFrameExcl).every(([ex, ez, r]) => far([ex, ez, r * 0.85], x, z));
@@ -481,14 +533,7 @@ export function buildWorld(scene) {
   { const lake = new THREE.Mesh(new THREE.CircleGeometry(9, 48), new THREE.MeshStandardMaterial({ color: '#3f8fb5', roughness: .25, metalness: .1 })); lake.rotation.x = -Math.PI / 2; lake.position.set(-8, 0.04, 8); add(lake);
     const rim = new THREE.Mesh(new THREE.RingGeometry(9, 10, 48), M.sand); rim.rotation.x = -Math.PI / 2; rim.position.set(-8, 0.05, 8); add(rim);
     const f = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.8, 1.4, 16), M.white); f.position.set(-8, 0.7, 8); add(f);
-    const cafe = new THREE.Group(); cafe.position.set(14, 0, 12); add(cafe);
-    box(7, 3.2, 5, M.bldLight, 0, 1.6, 0, cafe); box(7.6, 0.35, 5.8, M.orange, 0, 3.35, 0, cafe);
-    for (let i = 0; i < 5; i++) { const w = box(1.3, 0.12, 2.2, i % 2 ? M.white : M.orange, -2.8 + i * 1.4, 2.9, 3.4, cafe); w.rotation.x = 0.35; }
-    board('CÀ PHÊ', '☕ chạy deadline', 3.2, 0, 5.0, 2.55, cafe);
-    { const cl = new THREE.PointLight('#ffc98a', 0, 14, 1.6); cl.position.set(0, 2.6, 4.4); cafe.add(cl); roomLights.push(cl); }
-    for (const [x, z] of [[-2, 5.5], [1.5, 6]]) { box(1.2, 0.08, 1.2, M.white, x, 0.75, z, cafe); box(0.1, 0.75, 0.1, M.pole, x, 0.375, z, cafe); }
-    person('Designer', '#ff5a1f', cafe, -2.9, 5.8); person('PM', '#3fb5ff', cafe, 2.6, 6.4);
-    excl.push([-8, 8, 12], [14, 12, 9]); W.cafe = cafe;
+    excl.push([-8, 8, 12]);
     // lily pads, a little pier and the fountain jet
     const padM = new THREE.MeshStandardMaterial({ color: '#5d9a5a', roughness: .8 });
     for (let i = 0; i < 14; i++) { const a = seeded(i + 40) * 6.28, r = 3 + seeded(i + 41) * 5; const lp = new THREE.Mesh(new THREE.CylinderGeometry(.45 + seeded(i) * .3, .45 + seeded(i) * .3, .03, 14, 1, false, 0, 5.6), padM); lp.position.set(-8 + Math.cos(a) * r, 0.07, 8 + Math.sin(a) * r); lp.rotation.y = a; add(lp);
@@ -615,6 +660,44 @@ export function buildWorld(scene) {
         for (let j = f.puffs.length - 1; j >= 0; j--) { const q = f.puffs[j]; q.life -= dt; q.p.scale.setScalar(1 + (2.5 - q.life) * 1.2); q.p.material.opacity = Math.max(0, q.life / 2.5 * 0.45); if (q.life <= 0) { scene.remove(q.p); q.p.material.dispose(); f.puffs.splice(j, 1); } }
         if (f.t > 7.4 && !f.puffs.length) { scene.remove(f.m); flares.splice(i, 1); } }
     }; }
+  // ---------- feature agents: behaviour follows the feature status ----------
+  { let last = null; const up = new THREE.Vector3(0, 1, 0), tmp = new THREE.Vector3(), tgt = new THREE.Vector3();
+    const MODE = { todo: 'idle', doing: 'paint', redo: 'paint', review: 'scan', dev: 'scan', qa: 'scan', qc: 'scan', done: 'happy', improve: 'happy', bug: 'alarm' };
+    const EDGE = { idle: '#9aa3a8', paint: '#ff5a1f', scan: '#e9b949', happy: '#2bd47d', alarm: '#ff3b1f' };
+    const EYE = { idle: '#2c5560', paint: '#5ff3ff', scan: '#ffd84d', happy: '#7dffa8', alarm: '#ff3b1f' };
+    W.tickPlots = (t, feats) => {
+      const dt = last === null ? 0 : Math.max(0, Math.min(0.1, t - last)); last = t;
+      for (const P of W.plots) { const f = feats[P.i]; let mode = MODE[f.status] || 'idle'; if (f.status === 'bug' && f.taken) mode = 'paint';
+        if (mode !== P.mode) { if (mode === 'paint' && P.prog > 0.9) P.prog = 0.45; P.edgeM.color.set(EDGE[mode]); P.edgeM.emissive.set(EDGE[mode]); P.agent.eyesM.color.set(EYE[mode]); P.mode = mode; }
+        // progress of the painted UI
+        if (mode === 'idle') P.prog = Math.max(0, P.prog - dt * 0.5);
+        else if (mode === 'paint') P.prog = Math.min(0.9, P.prog + dt * 0.03);
+        else P.prog = Math.min(1, P.prog + dt * 0.4);
+        const p = P.prog; P.paint.visible = p > 0.005;
+        if (P.paint.visible) { P.paint.scale.x = p; P.paint.position.x = -3.7 + 3.7 * p; P.ui.repeat.set(p, 1); P.ui.offset.set(0, 0); }
+        const ex = -3.7 + 7.4 * p, s = P.i * 1.7, A = P.agent;
+        P.edgeGlow.visible = mode === 'paint'; P.edgeGlow.position.x = ex;
+        P.scanBar.visible = mode === 'scan'; P.scanBar.position.x = Math.sin(t * 1.2 + s) * 3.6;
+        P.glitch.material.opacity = mode === 'alarm' ? (Math.sin(t * 22 + s) > 0.2 ? 0.28 : 0.05) : 0;
+        if (mode === 'alarm') P.edgeM.emissiveIntensity = Math.sin(t * 10) > 0 ? 1.2 : 0.2; else P.edgeM.emissiveIntensity = mode === 'idle' ? 0.15 : 0.5;
+        // where the agent wants to be
+        if (mode === 'idle') tgt.set(3.25, 0.85 + Math.sin(t * 1.2 + s) * 0.03, 2.15);
+        else if (mode === 'paint') tgt.set(ex - 0.35, 1.75 + Math.sin(t * 3 + s) * 0.08, Math.sin(t * 1.4 + s) * 1.9);
+        else if (mode === 'scan') tgt.set(P.scanBar.position.x, 2.0 + Math.sin(t * 2 + s) * 0.1, -0.3);
+        else if (mode === 'happy') tgt.set(3.25, 0.95 + Math.abs(Math.sin(t * 4 + s)) * 0.55, 2.15);
+        else tgt.set(Math.sin(t * 30) * 0.06, 2.3 + Math.sin(t * 6) * 0.1, 0);
+        A.g.position.lerp(tgt, Math.min(1, dt * (mode === 'paint' ? 6 : 3)));
+        A.hover.rotation.y = mode === 'happy' ? t * 4 + s : mode === 'idle' ? Math.sin(t * 0.5 + s) * 0.4 : Math.sin(t * 1.5 + s) * 0.25;
+        A.halo.rotation.z = t * 6; A.halo.material.opacity = mode === 'idle' ? 0.2 : 0.75;
+        const blink = ((t + s) % 3.3) < 0.1 ? 0.15 : 1; A.eyes.forEach(e => e.scale.y = mode === 'idle' ? 0.35 : blink);
+        if (mode === 'alarm') A.eyesM.color.set(Math.sin(t * 12) > 0 ? '#ff3b1f' : '#5a0d05');
+        // painting beam from the pen to the canvas
+        P.beam.visible = mode === 'paint';
+        if (P.beam.visible) { const from = A.g.position.clone(); from.y -= 0.55; tmp.set(ex, 0.3, A.g.position.z); const d = from.distanceTo(tmp);
+          P.beam.position.copy(from).lerp(tmp, 0.5); P.beam.scale.set(1, d, 1); P.beam.quaternion.setFromUnitVectors(up, from.clone().sub(tmp).normalize()); P.beam.material.opacity = 0.55 + 0.3 * Math.sin(t * 20 + s); }
+      }
+    }; }
+
   W.tick = (t, cam) => { tickBots(t); W.qc.beams.rotation.y = t * 0.9; W.tickFireworks(t); W.tickUser(t, cam); W.foamM.opacity = 0.42 + 0.18 * Math.sin(t * 0.9); W.shallowM.opacity = 0.3 + 0.04 * Math.sin(t * 0.5); W.jet.scale.y = 1 + 0.12 * Math.sin(t * 6); };
 
   // stations: positions for the camera + stop distances for the trucks

@@ -58,6 +58,7 @@ export class Sim {
     this.lots = { task: makeLot('task', this.stopD.task - 30, this.stopD.task), research: makeLot('research', this.stopD.research - 4, this.stopD.research + 30) };
     this.park = this.lots.task;
     // department lots: park, walk into the room, work, walk back, drive on
+    this.stopD.cafe = world.cafeD;
     for (const [k, v] of Object.entries(world.vlots)) { const sd = this.stopD[k]; this.lots[k] = makeLot(k, sd + v.x - 8, sd + v.x + 8, 3.6); this.lots[k].visit = true; this.lots[k].side = v.side; }
     // six trucks spread over the route, already mid-task
     const start = [['task', 'dwell'], ['research', 'dwell'], ['design', 'drive'], ['test', 'drive'], ['review', 'drive'], ['handoff', 'return']];
@@ -89,7 +90,8 @@ export class Sim {
     const lot = this.lots[tr.lot], side = lot.visit ? lot.side : tr.lot === 'research' ? -1 : 1, R = this.roomPts(key, tr.slot || 0);
     tr.g.updateMatrixWorld(true); const door = tr.g.localToWorld(new V3(-0.2, 0, side * 1.25)); door.y = 0;
     const pts = [door];
-    if (lot.visit) { const v = this.w.vlots[tr.lot], g = v.group, cl = g.worldToLocal(door.clone()), fl = g.worldToLocal(R.out.clone());
+    const v = lot.visit ? this.w.vlots[tr.lot] : tr.lot === 'task' ? this.w.parks.task : null;   // walk out along the aisle, not through the other parked cars
+    if (v) { const g = v.group, cl = g.worldToLocal(door.clone()), fl = g.worldToLocal(R.out.clone());
       pts.push(g.localToWorld(new V3(v.aisleX, 0, cl.z)), g.localToWorld(new V3(v.aisleX, 0, fl.z))); }
     pts.push(R.out, R.in, R.spot); return pts;
   }
@@ -115,6 +117,7 @@ export class Sim {
   }
   visitArrive(tr, key) {
     const t = tr.task, F = this.Ft(tr);
+    if (key === 'cafe') { tr.timer = rr(9, 11); tr.mode = 'parked'; tr.dwellKey = key; tr.ready = false; return; }
     if (key === 'design' && tr.fixPending) { tr.fixPending = false; tr.fixing = true; tr.timer = tr.early ? rr(2.5, 3.5) : rr(...(tr.minorFix ? F.fixMinor : F.fixMajor)); t.version++; this.log(tr, `Sửa lại → v${t.version}`); tr.early = false; }
     else if (key === 'handoff') { tr.fixing = false; tr.timer = rr(2.5, 3.5); this.log(tr, 'Phòng bàn giao: chuẩn bị spec, asset, prototype'); }
     else this.arrive(tr, key);
@@ -213,13 +216,13 @@ export class Sim {
       return tr.timer > tr.defineT ? `đang research · còn ${Math.ceil(tr.timer - tr.defineT)}s` : `define · còn ${Math.max(0, Math.ceil(tr.timer))}s`; }
     if (tr.lot && this.lots[tr.lot]?.visit) { if (tr.mode === 'parkIn') return 'vào bãi đỗ'; if (tr.mode === 'parkOut') return 'ra đường';
       const ws = tr.walker.state; if (ws === 'in') return 'xuống xe → vào phòng'; if (ws === 'out') return 'về xe'; if (ws === 'car') return 'chuẩn bị ra';
-      if (tr.lot === 'handoff') return 'chuẩn bị spec'; }
+      if (tr.lot === 'handoff') return 'chuẩn bị spec'; if (tr.lot === 'cafe') return '☕ nghỉ cà phê'; }
     if (tr.mode === 'merge') return 'chờ nhập làn';
     if (tr.lot === 'task' && tr.wantOut) return 'về xe nhận task';
     if (tr.mode === 'parkIn') return 'vào bãi chờ';
     if (tr.mode === 'parked' && tr.lot === 'task') return 'chờ task ⏳';
     if (tr.mode === 'parkOut') return 'ra nhận task';
-    if (!t) return tr.mode === 'dwell' ? 'chờ task' : 'xe trống · về bến';
+    if (!t) return tr.mode === 'dwell' ? 'chờ task' : tr.stop === 'cafe' ? 'đi uống cà phê ☕' : 'xe trống · về bến';
     if (tr.mode === 'reverse') return tr.early ? 'quay lại sửa sớm' : 'quay xe sửa 😭';
     if (tr.mode === 'wait') return 'chờ tàu';
     if (tr.mode === 'dwell' || tr.mode === 'parked') return { task: 'nhận task', research: 'đang research', design: tr.fixing ? `sửa lại v${t.version}` : (t.flow === 'std' ? `wireframe → UI v${t.version}` : `đang vẽ v${t.version}`), techreview: 'review sớm: PM + Dev', test: 'user test', review: 'chờ sếp duyệt', handoff: 'bàn giao dev' }[k] || '';
@@ -243,11 +246,12 @@ export class Sim {
       else if (tr.mode === 'drive') {
         if (!this.active(tr.stop, tr)) tr.stop = this.next(tr, tr.stop);
         if (tr.stop === 'research' && tr.task?.skipResearch) tr.stop = 'design';
-        const lotKey = !tr.task && tr.stop === 'task' && !tr.skipPark ? 'task' : tr.task && tr.stop === 'research' ? 'research' : tr.task && this.lots[tr.stop]?.visit && tr.visited !== tr.stop ? tr.stop : null, toLot = !!lotKey;
+        const lotKey = !tr.task && tr.stop === 'cafe' ? 'cafe' : !tr.task && tr.stop === 'task' && !tr.skipPark ? 'task' : tr.task && tr.stop === 'research' ? 'research' : tr.task && this.lots[tr.stop]?.visit && tr.visited !== tr.stop ? tr.stop : null, toLot = !!lotKey;
         const target = toLot ? this.lots[lotKey].entryD : this.stopD[tr.stop], fd = ((target - tr.d) % L + L) % L;
         if (toLot && fd < 0.3) { const lot = this.lots[lotKey], k = lot.occ.indexOf(null);
           if (k >= 0 && tr.v < 4) { lot.occ[k] = tr; tr.slot = k; tr.lot = lotKey; tr.offroad = true; tr.mode = 'parkIn'; tr.path = lot.inPath[k]; tr.pl = tr.path.getLength(); tr.ps = 0; this.place(tr, dt); tr.status = this.status(tr); continue; }
-          if (k < 0 && lotKey === 'task') tr.skipPark = true; }
+          if (k < 0 && lotKey === 'task') tr.skipPark = true;
+          if (k < 0 && lotKey === 'cafe') tr.stop = 'task'; }   // café full: skip the coffee
         let vmax = Math.min(9, Math.sqrt(2 * 5 * fd));
         vmax = Math.min(vmax, Math.sqrt(2 * 6 * Math.max(0, this.gapAhead(tr) - 6.2)));
         tr.v += Math.max(-12 * dt, Math.min(5 * dt, vmax - tr.v));
@@ -319,6 +323,7 @@ export class Sim {
 
   leave(tr) {
     const key = tr.dwellKey, t = tr.task;
+    if (key === 'cafe') { tr.stop = 'task'; tr.mode = 'drive'; return; }
     if (key === 'task' && !t) { this.arrive(tr, 'task'); return; }
     if (key === 'techreview' && t) {
       t.techChecked = true;
@@ -340,7 +345,7 @@ export class Sim {
       this.hooks.stamp(tr, true); this.hooks.event(`✅ #${t.no} ${t.feature.name}: sếp duyệt`, 'good'); this.log(tr, 'Sếp duyệt ✔'); tr.approvedAt = this.t;
     }
     if (key === 'handoff') {
-      this.crane.busy = null; tr.task = null; tr.cargo = null; tr.stop = 'task'; tr.visited = null; tr.mode = 'drive'; tr.v = 0; tr.afterFix = null; return;
+      this.crane.busy = null; tr.task = null; tr.cargo = null; tr.stop = 'cafe'; tr.visited = null; tr.mode = 'drive'; tr.v = 0; tr.afterFix = null; return;
     }
     if (key === 'task') this.gantry.busy = null;
     if (key === 'design' && tr.fixing) {

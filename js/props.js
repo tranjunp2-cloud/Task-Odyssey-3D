@@ -353,3 +353,22 @@ export function makeWalker(hair) {
   g.visible = false;
   return { g, legs, card, cardM };
 }
+
+// ---------- mini design agent: one per feature plot in the design studio ----------
+export function miniAgent(color) {
+  const g = new THREE.Group();
+  const acc = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .45, roughness: .4 });
+  const hover = new THREE.Group(); g.add(hover);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(.34, 22, 16), PM.botWhite); body.scale.set(1.05, .9, 1); hover.add(body);
+  const visor = new THREE.Mesh(new THREE.SphereGeometry(.29, 22, 14, -Math.PI * .4, Math.PI * .8, Math.PI * .3, Math.PI * .38), PM.visor); visor.scale.set(1.18, .95, 1.1); visor.rotation.y = Math.PI / 2; hover.add(visor);   // faces +z
+  const eyesM = new THREE.MeshBasicMaterial({ color: '#5ff3ff' });
+  const eyes = [-1, 1].map(sx => { const e = new THREE.Mesh(new THREE.CapsuleGeometry(.03, .06, 4, 8), eyesM); e.position.set(sx * .1, .02, .315); hover.add(e); return e; });
+  const band = new THREE.Mesh(new THREE.TorusGeometry(.355, .03, 8, 28), acc); band.rotation.x = Math.PI / 2; band.position.y = -.08; hover.add(band);
+  const ant = new THREE.Mesh(new THREE.CylinderGeometry(.012, .012, .22, 6), PM.dark); ant.position.y = .4; hover.add(ant);
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(.055, 10, 8), acc); tip.position.y = .53; hover.add(tip);
+  const halo = new THREE.Mesh(new THREE.TorusGeometry(.42, .025, 6, 32), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .7, blending: THREE.AdditiveBlending, depthWrite: false })); halo.rotation.x = Math.PI / 2; halo.position.y = -.32; hover.add(halo);
+  const pen = new THREE.Mesh(new THREE.ConeGeometry(.06, .3, 10), acc); pen.rotation.x = Math.PI; pen.position.y = -.42; hover.add(pen);
+  for (const sx of [-1, 1]) { const arm = new THREE.Mesh(new THREE.CapsuleGeometry(.045, .14, 4, 8), PM.botWhite); arm.position.set(sx * .38, -.05, .02); arm.rotation.z = sx * .5; hover.add(arm); }
+  g.traverse(o => { if (o.isMesh && !o.material.transparent) o.castShadow = true; });
+  return { g, hover, eyes, eyesM, halo, acc };
+}
