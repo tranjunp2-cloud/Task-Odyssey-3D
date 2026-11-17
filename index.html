@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Design Trip — hành trình của một task design</title>
+<meta name="description" content="Bản đồ 3D tương tác: mỗi chiếc xe là một designer chở file thiết kế qua research, design, user test, sếp duyệt và bàn giao cho dev. Concept của junkiodesign.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap&subset=vietnamese" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2218%22 r=%2211%22 fill=%22none%22 stroke=%22%230b1a24%22 stroke-width=%224%22/%3E%3Ccircle cx=%2216%22 cy=%226%22 r=%224%22 fill=%22%23ff5a1f%22/%3E%3C/svg%3E">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+} }
+</script>
+</head>
+<body data-mode="overview">
+<div id="app"></div>
+
+<header class="top">
+  <div class="brand"><i></i><div><b>DESIGN TRIP</b><small>Hành trình của một task · concept by junkiodesign</small></div></div>
+  <div class="stats">
+    <span><b id="st-active">0</b> task đang chạy</span>
+    <span><b id="st-shipped">0</b> đã bàn giao</span>
+    <span class="bad"><b id="st-rej">0</b> lần sếp trả về</span>
+    <span class="bad"><b id="st-bounce">0</b> “không code được”</span>
+    <span>Sprint <b id="st-sprint">1</b></span>
+  </div>
+  <div class="flow" role="group" aria-label="Chọn quy trình"><button data-flow="std" class="on">✅ Chuẩn</button><button data-flow="real">😭 Thực tế</button></div>
+  <div class="ctrl">
+    <button id="btn-map" class="map-btn">◱ Bản đồ</button>
+    <button id="btn-pause" aria-label="Tạm dừng">❚❚</button>
+    <button data-speed="1" class="on">1×</button><button data-speed="2">2×</button><button data-speed="4">4×</button>
+    <button id="btn-night" aria-label="Ngày / đêm">🌙</button>
+  </div>
+</header>
+
+<aside id="panel" aria-live="polite"></aside>
+
+<div class="legend">
+  <span><i class="dot red"></i>đang làm / bị trả về</span><span><i class="dot yellow"></i>chờ test · duyệt · dev</span><span><i class="dot green"></i>xong</span><span><i class="dot gray"></i>chưa làm</span>
+</div>
+<div id="compare"></div>
+<ul id="feed"></ul>
+<canvas id="minimap" width="240" height="206" title="Bấm để tới trạm gần nhất"></canvas>
+<p class="hint">Kéo để di chuyển · chuột phải / 2 ngón để xoay · cuộn để zoom · bấm vào trạm hoặc xe để xem chi tiết</p>
+<nav id="steps" aria-label="Các trạm"></nav>
+<div class="loading" id="loading">ĐANG DỰNG BẢN ĐỒ…</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
