@@ -11,10 +11,12 @@ const V3 = THREE.Vector3;
 const ALL = ['task', 'research', 'design', 'techreview', 'test', 'review', 'handoff'];
 // tham số của từng chế độ
 const FLOW = {
-  std:  { label: 'Quy trình chuẩn', reject: [0.2, 0.08, 0], minor: 0.7, early: 0.35, bounceChecked: 0.03, bounce: 0.2, research: [18, 22], define: 10, fixMinor: [2.5, 3.5], fixMajor: [5, 7], skip: [] },
-  real: { label: 'Quy trình thực tế', reject: [0.55, 0.35, 0.12], minor: 0, early: 0, bounceChecked: 0.25, bounce: 0.25, research: [27, 33], define: 0, fixMinor: [8, 12], fixMajor: [8, 12], skip: ['techreview'] },
+  std:  { label: 'Quy trình chuẩn', reject: [0.2, 0.08, 0], minor: 0.7, early: 0.35, bounceChecked: 0.03, bounce: 0.2, research: [18, 22], define: 10, qcFail: 0.12, userBug: 0.08, fixMinor: [2.5, 3.5], fixMajor: [5, 7], skip: [] },
+  real: { label: 'Quy trình thực tế', reject: [0.55, 0.35, 0.12], minor: 0, early: 0, bounceChecked: 0.25, bounce: 0.25, research: [27, 33], define: 0, qcFail: 0.35, userBug: 0.3, fixMinor: [8, 12], fixMajor: [8, 12], skip: ['techreview'] },
 };
-const emptyStats = () => ({ done: 0, leadSum: 0, rejects: 0, early: 0, bounced: 0, shipped: 0 });
+const emptyStats = () => ({ done: 0, leadSum: 0, rejects: 0, early: 0, bounced: 0, shipped: 0, userBugs: 0 });
+const USER_BUG_EVERY = 5;   // seconds of simulation between two user bug reports
+const BUGMSG = ['nút thanh toán không bấm được', 'màn hình trắng trên iPhone cũ', 'chữ tràn khỏi nút', 'không nhận được email xác nhận', 'tải trang quá chậm', 'bấm quay lại bị mất giỏ hàng', 'chế độ tối không đọc được chữ'];
 const PAL = ['#ff5a1f', '#1f6f8b', '#b5452d', '#e9b949', '#0e3b5c', '#7b5cff', '#2bd47d', '#e86a92'];
 const eIO = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 const clamp01 = v => Math.min(1, Math.max(0, v));
@@ -35,9 +37,10 @@ const HAIR = ['#2a1d16', '#7a4a2a', '#111', '#c98b4b', '#3b2a5c', '#e2c48f'];
 export class Sim {
   constructor(world, scene, hooks) {
     this.w = world; this.scene = scene; this.hooks = hooks; // hooks: { event(text, kind), stamp(truck, ok), devPop(text) }
-    this.features = FEATURES.map(([id, name], i) => ({ id, name, status: 'todo', plot: world.plots[i], taken: false, redo: 0 }));
+    this.features = FEATURES.map(([id, name], i) => ({ id, name, status: i >= 8 ? 'done' : 'todo', plot: world.plots[i], taken: false, redo: 0 }));   // F09–F12 are already live from an earlier release
+    this.bugClock = USER_BUG_EVERY;
     this.stats = { shipped: 0, rejected: 0, bounced: 0, sprint: 1 };
-    this.flow = 'std'; this.ms = { std: emptyStats(), real: emptyStats() }; this.island = [];
+    this.flow = 'std'; this.ms = { std: emptyStats(), real: emptyStats() }; this.island = []; this.live = []; this.users = 1240;
     this.taskNo = 2531; this.trucks = []; this.t = 0;
     this.gantry = { busy: null, t: 0 }; this.crane = { busy: null, t: 0 };
     this.ship = { state: 'docked', t: 0, cargo: [], firstLoad: null };
@@ -119,20 +122,20 @@ export class Sim {
   }
 
   assign(tr, silent) {
-    let pool = this.features.filter(f => !f.taken && ['todo', 'redo', 'improve'].includes(f.status));
+    let pool = this.features.filter(f => !f.taken && ['todo', 'redo', 'improve', 'bug'].includes(f.status));
     const done = this.features.filter(f => f.status === 'done');
     if (!pool.length && done.length >= 4) {   // rolling backlog: finished features come back as next sprint's work
       this.stats.sprint++; done.forEach(f => { f.status = 'todo'; f.redo = 0; f.improved = false; });
       this.hooks.event(`🎉 Sprint ${this.stats.sprint}: ${done.length} tính năng vào lượt mới`, 'good'); pool = done;
     }
     if (!pool.length) return false;
-    const f = pool[Math.floor(rnd() * pool.length)]; const wasRedo = f.status === 'redo', wasImprove = f.status === 'improve'; f.taken = true; f.status = 'doing';
+    const f = pool[Math.floor(rnd() * pool.length)]; const wasRedo = f.status === 'redo', wasImprove = f.status === 'improve', wasBug = f.status === 'bug'; f.taken = true; f.status = 'doing';
     if (f.firstStart == null) { f.firstStart = this.t; f.startMode = this.flow; }
     const no = this.taskNo++, color = PAL[(no + 3) % PAL.length];
-    tr.task = { no, feature: f, version: 0, rejects: 0, history: [], color, flow: this.flow, skipResearch: wasRedo && this.flow === 'std', improve: wasImprove };
+    tr.task = { no, feature: f, version: 0, rejects: 0, history: [], color, flow: this.flow, skipResearch: (wasRedo || wasBug) && this.flow === 'std', improve: wasImprove, hotfix: wasBug };
     tr.cargo = container(color, `#${no} · ${f.id}`);
-    this.log(tr, wasRedo ? `Nhận lại task sau khi dev trả về${tr.task.skipResearch ? ' (không research lại)' : ''}` : wasImprove ? 'Task cải tiến từ số liệu sau release' : 'Nhận task từ PM');
-    if (!silent) this.hooks.event(`📦 #${no} ${f.name}: nhận task`, 'info');
+    this.log(tr, wasBug ? `Task hotfix: user báo “${f.bugMsg}”` : wasRedo ? `Nhận lại task sau khi dev trả về${tr.task.skipResearch ? ' (không research lại)' : ''}` : wasImprove ? 'Task cải tiến từ số liệu sau release' : 'Nhận task từ PM');
+    if (!silent) this.hooks.event(wasBug ? `🩹 #${no} ${f.name}: nhận task hotfix` : `📦 #${no} ${f.name}: nhận task`, 'info');
     if (silent) { tr.cargo.position.set(0, TRAILER_TOP + CH / 2, 0); tr.g.add(tr.cargo); }
     return true;
   }
@@ -159,7 +162,7 @@ export class Sim {
     tr.g.rotation.y = g.rotation.y + Math.atan2(-t.z, t.x);
     tr.wheels.forEach(w => w.rotation.z = -tr.dist / 0.3);
   }
-  canAssign() { return this.features.some(f => !f.taken && ['todo', 'redo', 'improve'].includes(f.status)) || this.features.filter(f => f.status === 'done').length >= 4; }
+  canAssign() { return this.features.some(f => !f.taken && ['todo', 'redo', 'improve', 'bug'].includes(f.status)) || this.features.filter(f => f.status === 'done').length >= 4; }
   updateOff(tr, dt) {
     if (tr.mode === 'parked') { tr.v = 0; const lot = this.lots[tr.lot], ws = tr.walker.state;
       if (tr.lot === 'research') { const was = tr.timer > tr.defineT; tr.timer -= dt;
@@ -214,7 +217,7 @@ export class Sim {
     if (tr.mode === 'merge') return 'chờ nhập làn';
     if (tr.lot === 'task' && tr.wantOut) return 'về xe nhận task';
     if (tr.mode === 'parkIn') return 'vào bãi chờ';
-    if (tr.mode === 'parked') return 'chờ task ⏳';
+    if (tr.mode === 'parked' && tr.lot === 'task') return 'chờ task ⏳';
     if (tr.mode === 'parkOut') return 'ra nhận task';
     if (!t) return tr.mode === 'dwell' ? 'chờ task' : 'xe trống · về bến';
     if (tr.mode === 'reverse') return tr.early ? 'quay lại sửa sớm' : 'quay xe sửa 😭';
@@ -287,7 +290,7 @@ export class Sim {
       const tr = this.trucks.filter(o => o.lot === key && o.mode === 'parked' && o.ready).sort((a, b) => a.parkedAt - b.parkedAt)[0];
       if (tr && clear) { tr.mode = 'parkOut'; tr.path = V.outPath[tr.slot]; tr.pl = tr.path.getLength(); tr.ps = 0; }
     }
-    this.updateShip(dt); this.updateIsland(dt);
+    this.updateShip(dt); this.updateIsland(dt); this.updateLive(dt);
     // barrier: open while an approved truck is leaving review
     const b = this.w.anim.barrier, want = this.trucks.some(tr => tr.approvedAt && this.t - tr.approvedAt < 3.2) ? 1 : 0;
     b.open += (want - b.open) * Math.min(1, dt * 3); b.arm.rotation.x = 0; b.arm.rotation.z = 0; b.arm.rotation.x = b.open * 1.35;
@@ -393,32 +396,66 @@ export class Sim {
         const { task: t } = S.cargo[S.idx++], f = t.feature;
         const FL = FLOW[t.flow], pb = t.techChecked ? FL.bounceChecked : FL.bounce;
         if (rnd() < pb) { f.status = 'redo'; f.redo++; this.stats.bounced++; this.ms[t.flow].bounced++; this.hooks.devPop(`💀 #${t.no} “cái này không code được”`); this.hooks.event(`💀 Dev trả #${t.no} ${f.name}: không code được`, 'bad'); }
-        else if (t.flow === 'real') { f.status = 'done'; this.finishFeature(f); this.hooks.devPop(`💻 #${t.no} code xong`); }
         else { f.status = 'dev'; this.island.push({ t, f, phase: 'build', timer: rr(5, 7) }); this.hooks.devPop(`💻 #${t.no} dev đang build`); }
       }
       if (S.t >= S.cargo.length * per + 0.4) { S.cargo.forEach(c => c.mesh.removeFromParent()); S.cargo = []; S.firstLoad = null; S.state = 'back'; S.t = 0; }
     } else if (S.state === 'back') { sail(H.SHIP_ISLE, H.SHIP_DOCK, Math.min(1, S.t / 6)); if (S.t >= 6) { S.state = 'docked'; S.t = 0; H.ship.rotation.y = 0; H.ship.position.copy(H.SHIP_DOCK); } }
   }
 
-  // dev island pipeline (standard flow): build → design QA → release → measure
+  // dev island → QC island: build → design QA (standard only) → cross the bridge → QC test → release from the lighthouse
   updateIsland(dt) {
-    const R = this.w.anim.handoff.releaseM; R.emissiveIntensity = Math.max(0.2, R.emissiveIntensity - dt * 2);
+    const R = this.w.anim.handoff.releaseM, Q = this.w.qc; R.emissiveIntensity = Math.max(0.6, R.emissiveIntensity - dt * 1.5);
+    Q.beamM.opacity = 0.14 + Math.min(0.5, (R.emissiveIntensity - 0.6) * 0.12);
+    const toQC = j => { j.phase = 'toqc'; j.timer = 3.2; j.f.status = 'qc'; this.hooks.devPop(`🌉 #${j.t.no} qua cầu sang QC`);
+      j.card = container(j.t.color, `#${j.t.no}`); j.card.scale.setScalar(0.7); this.scene.add(j.card); };
     for (const j of this.island) {
-      j.timer -= dt; if (j.timer > 0) continue;
-      if (j.phase === 'build') { j.phase = 'qa'; j.f.status = 'qa'; j.timer = 3; this.hooks.devPop(`🔍 #${j.t.no} design QA`);
-        if (rnd() < 0.15) { j.timer += 2.5; this.hooks.event(`🔍 #${j.t.no} ${j.f.name}: QA thấy lệch spacing, dev chỉnh`, 'info'); } }
-      else if (j.phase === 'qa') {
-        j.phase = 'gone'; j.f.status = 'done'; this.finishFeature(j.f); R.emissiveIntensity = 4;
-        this.hooks.devPop(`🚀 #${j.t.no} release`); this.hooks.event(`🚀 ${j.f.id} ${j.f.name}: release`, 'good');
-        if (!j.f.improved && rnd() < 0.12) { j.f.improved = true; j.f.status = 'improve'; this.hooks.event(`📈 Đo lường sau release: thêm task cải tiến ${j.f.id} ${j.f.name}`, 'info'); }
+      j.timer -= dt;
+      if (j.phase === 'toqc' && j.card) { const k = clamp01(1 - j.timer / 3.2); j.card.position.lerpVectors(Q.bridgeA, Q.bridgeB, eIO(k)); j.card.position.y += 0.35 + Math.sin(k * Math.PI) * 0.6; }
+      if (j.timer > 0) continue;
+      if (j.phase === 'build') {
+        if (j.t.flow === 'std') { j.phase = 'qa'; j.f.status = 'qa'; j.timer = 3; this.hooks.devPop(`🔍 #${j.t.no} design QA`);
+          if (rnd() < 0.15) { j.timer += 2.5; this.hooks.event(`🔍 #${j.t.no} ${j.f.name}: Design QA thấy lệch spacing, dev chỉnh`, 'info'); } }
+        else toQC(j);
+      }
+      else if (j.phase === 'qa') toQC(j);
+      else if (j.phase === 'toqc') { j.card.removeFromParent(); j.card = null; j.phase = 'qc'; j.timer = rr(4, 6); this.hooks.qcPop(`🧪 #${j.t.no} QC đang chạy test case`); }
+      else if (j.phase === 'qc') {
+        if (rnd() < FLOW[j.t.flow].qcFail) { j.phase = 'build'; j.f.status = 'dev'; j.timer = rr(3, 4.5); j.bugs = (j.bugs || 0) + 1;
+          this.hooks.qcPop(`🐞 #${j.t.no} QC báo lỗi → trả dev`); this.hooks.event(`🐞 QC: #${j.t.no} ${j.f.name} còn lỗi, trả về dev sửa`, 'bad'); continue; }
+        j.phase = 'gone'; j.f.status = 'done'; this.finishFeature(j.f); R.emissiveIntensity = 5; this.w.fireworks(j.t.flow === 'std' ? 5 : 3);
+        j.f.userBug = false; j.f.reports = 0; this.w.sendToUsers(j.t.color); this.users += Math.round(rr(60, 220));
+        this.hooks.qcPop(`🎆 #${j.t.no} QC pass · release!`); this.hooks.event(`🎆 ${j.f.id} ${j.f.name}: QC pass, hải đăng bật đèn release`, 'good');
+        if (j.t.flow === 'std' && !j.f.improved && rnd() < 0.12) { j.f.improved = true; j.f.status = 'improve'; this.hooks.event(`📈 Đo lường sau release: thêm task cải tiến ${j.f.id} ${j.f.name}`, 'info'); }
       }
     }
     this.island = this.island.filter(j => j.phase !== 'gone');
   }
 
+  // user city: a released feature may hit a bug in real use → SOS flare + a hotfix task back in the backlog
+  // user city: every USER_BUG_EVERY seconds a user hits a bug → SOS flare. A live feature becomes a hotfix task;
+  // if nothing is live and bug-free, another user reports one of the bugs that are already open.
+  updateLive(dt) {
+    if ((this.bugClock -= dt) > 0) return;
+    this.bugClock += USER_BUG_EVERY;
+    const live = this.features.filter(f => ['done', 'improve'].includes(f.status) && !f.taken && !f.userBug);
+    let f, text;
+    if (live.length) {
+      f = live[Math.floor(rnd() * live.length)]; f.status = 'bug'; f.userBug = true; f.taken = false; f.reports = 1; f.bugMsg = BUGMSG[Math.floor(rnd() * BUGMSG.length)];
+      this.stats.userBugs = (this.stats.userBugs || 0) + 1; this.ms[this.flow].userBugs++;
+      text = `🆘 User báo lỗi ${f.id} ${f.name}: ${f.bugMsg}`;
+    } else {
+      const open = this.features.filter(f => f.userBug); if (!open.length) return;
+      f = open[Math.floor(rnd() * open.length)]; f.reports++;
+      text = `🆘 Thêm user báo lỗi ${f.id}: ${f.bugMsg} (${f.reports} báo cáo)`;
+    }
+    this.hooks.event(text, 'bad'); this.hooks.userPop?.(`🆘 ${f.id}: ${f.bugMsg}`); this.w.flare();
+  }
+  get openReports() { return this.features.reduce((n, f) => n + (f.userBug ? f.reports || 1 : 0), 0); }
+  get openBugs() { return this.features.filter(f => f.userBug).length; }
+
   // trucks at / heading into a station (for the detail panel)
   at(key) {
-    if (key === 'dev') return [];
+    if (key === 'dev' || key === 'qc' || key === 'user') return [];
     if (key === 'define') return this.trucks.filter(tr => tr.lot === 'research' && tr.mode === 'parked' && tr.defineT && tr.timer <= tr.defineT);
     if (key === 'research') return this.trucks.filter(tr => tr.task && ((tr.lot === 'research' && !(tr.mode === 'parked' && tr.defineT && tr.timer <= tr.defineT)) || (tr.mode === 'drive' && tr.stop === 'research')));
     const L = this.w.L, d = this.stopD[key];

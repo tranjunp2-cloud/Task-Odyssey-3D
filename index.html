@@ -29,11 +29,10 @@
     <span class="bad"><b id="st-bounce">0</b> “không code được”</span>
     <span>Sprint <b id="st-sprint">1</b></span>
   </div>
-  <div class="flow" role="group" aria-label="Chọn quy trình"><button data-flow="std" class="on">✅ Chuẩn</button><button data-flow="real">😭 Thực tế</button></div>
   <div class="ctrl">
     <button id="btn-map" class="map-btn">◱ Bản đồ</button>
     <button id="btn-pause" aria-label="Tạm dừng">❚❚</button>
-    <button data-speed="1" class="on">1×</button><button data-speed="2">2×</button><button data-speed="4">4×</button>
+    <button data-speed="1" class="on" title="Tốc độ thường (phím [ )">1×</button><button data-speed="2" title="Nhanh gấp đôi">2×</button><button data-speed="4" title="Nhanh gấp 4 (phím ] )">4×</button>
     <button id="btn-night" aria-label="Ngày / đêm">🌙</button>
   </div>
 </header>
@@ -43,11 +42,10 @@
 <div class="legend">
   <span><i class="dot red"></i>đang làm / bị trả về</span><span><i class="dot yellow"></i>chờ test · duyệt · dev</span><span><i class="dot green"></i>xong</span><span><i class="dot gray"></i>chưa làm</span>
 </div>
-<div id="compare"></div>
+<div id="views" role="group" aria-label="Góc nhìn"></div>
 <ul id="feed"></ul>
 <canvas id="minimap" width="240" height="206" title="Bấm để tới trạm gần nhất"></canvas>
-<p class="hint">Kéo để di chuyển · chuột phải / 2 ngón để xoay · cuộn để zoom · bấm vào trạm hoặc xe để xem chi tiết</p>
-<nav id="steps" aria-label="Các trạm"></nav>
+<p class="hint">Bấm vào phòng ban để zoom vào chi tiết · bấm vào xe để theo dõi · kéo để di chuyển · chuột phải / 2 ngón để xoay · cuộn để zoom</p>
 <div class="loading" id="loading">ĐANG DỰNG BẢN ĐỒ…</div>
 <script type="module" src="js/main.js"></script>
 </body>

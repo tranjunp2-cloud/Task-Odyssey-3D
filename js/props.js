@@ -32,7 +32,8 @@ export const PM = {
 };
 const matCache = {};
 export const colorMat = (c, o = {}) => matCache[c + JSON.stringify(o)] ||= new THREE.MeshStandardMaterial({ color: c, roughness: .55, ...o });
-export const screens = [];   // screen materials (glow, stronger at night)
+export const screens = [];
+export const roomLights = [];   // one warm light per room, lit at night   // screen materials (glow, stronger at night)
 const screenMat = t => { const m = new THREE.MeshStandardMaterial({ color: '#000', emissive: '#fff', emissiveMap: t, emissiveIntensity: .9, map: t, roughness: .3 }); screens.push(m); return m; };
 
 const B = (w, h, d, m, x, y, z, p) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); p.add(o); return o; };
@@ -94,6 +95,10 @@ export function wallTex(kind) {
   } else if (kind === 'goals') {
     head('OKR · TIÊU CHÍ DUYỆT', 22, 40);
     ['Rõ mục tiêu', 'Đúng tiêu chí', 'Code được', 'Đo được'].forEach((t, i) => { const Y = 80 + i * 50; x.fillStyle = '#0b1a24'; x.font = '600 22px Montserrat'; x.fillText(t, 24, Y); x.fillStyle = '#eef1f3'; x.fillRect(220, Y - 18, 260, 20); x.fillStyle = ['#2bd47d', '#ff5a1f', '#1f6f8b', '#e9b949'][i]; x.fillRect(220, Y - 18, 120 + seeded(i) * 140, 20); });
+  } else if (kind === 'qc') {
+    head('TEST CASE · BẢN BUILD', 22, 40);
+    [['PASS', '#2bd47d', 7], ['FAIL', '#ff5a1f', 2], ['ĐANG TEST', '#e9b949', 3]].forEach(([t, c, n], i) => { const X = 22 + i * 164; x.fillStyle = '#eef1f3'; x.fillRect(X, 56, 150, 214); x.fillStyle = c; x.fillRect(X, 56, 150, 30); x.fillStyle = '#fff'; x.font = '800 18px Montserrat'; x.fillText(t, X + 10, 78);
+      for (let k = 0; k < n; k++) { x.fillStyle = c; x.globalAlpha = .35; x.fillRect(X + 10, 96 + k * 24, 130, 16); x.globalAlpha = 1; } });
   } else if (kind === 'persona') {
     head('USER TEST · 5 NGƯỜI', 22, 40);
     for (let i = 0; i < 5; i++) { const X = 30 + i * 94; x.fillStyle = STK[i]; x.beginPath(); x.arc(X + 36, 100, 32, 0, 7); x.fill(); x.fillStyle = '#0b1a24'; x.fillRect(X + 6, 150, 60, 7); x.fillStyle = i < 3 ? '#2bd47d' : '#ff5a1f'; x.fillRect(X + 6, 170, 30 + seeded(i) * 30, 9); }
@@ -210,7 +215,11 @@ export function room(parent, { x, z, w, d, back = 1, accent = '#ff5a1f', board }
   const H = 2.5, y0 = .22;
   B(w, H, .18, PM.wall, 0, y0 + H / 2, d / 2 - .09, g); B(.18, H, d, PM.wall, -w / 2 + .09, y0 + H / 2, 0, g);
   B(w + .02, .16, .22, am, 0, y0 + H + .08, d / 2 - .09, g); B(.22, .16, d + .02, am, -w / 2 + .09, y0 + H + .08, 0, g);
-  B(w - .6, .05, .05, PM.strip, 0, y0 + H - .25, d / 2 - .2, g);
+  B(w - .6, .05, .05, PM.strip, 0, y0 + H - .25, d / 2 - .2, g); B(.05, .05, d - .6, PM.strip, -w / 2 + .2, y0 + H - .25, 0, g);
+  // ceiling lamp: off by day, warm light at night (main.js drives the intensity)
+  { const l = new THREE.PointLight('#ffd9a8', 0, Math.max(w, d) * 1.5, 1.4); l.position.set(0, y0 + 2.1, -.3); g.add(l); roomLights.push(l);
+    const pend = new THREE.Mesh(new THREE.CylinderGeometry(.06, .4, .22, 16, 1, true), colorMat('#1d2329', { side: THREE.DoubleSide })); pend.position.set(0, y0 + 2.3, -.3); g.add(pend);
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(.13, 12, 8), PM.strip); bulb.position.set(0, y0 + 2.17, -.3); g.add(bulb); }
   // low glass: right side + front with a door gap
   const glass = (gw, gx, gz, alongX) => { B(alongX ? gw : .05, 1.1, alongX ? .05 : gw, PM.glass, gx, y0 + .55, gz, g); B(alongX ? gw : .07, .05, alongX ? .07 : gw, PM.dark, gx, y0 + 1.12, gz, g); };
   glass(d, w / 2, 0, false);
@@ -241,7 +250,7 @@ export function bot(p, x, z, label, holo, { y = 0, ry = 0 } = {}) {
   let panel = null;
   if (holo) { const m = new THREE.MeshBasicMaterial({ map: holoTex(holo), transparent: true, opacity: .85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
     panel = new THREE.Mesh(new THREE.PlaneGeometry(.9, .56), m); panel.position.set(.62, 1.5, -.1); panel.rotation.y = -.35; hover.add(panel); }
-  const b = { label, group: g, hover, head, eyes, ring, panel, glowM, seed: bots.length * 1.7 };
+  const b = { label, holo, group: g, hover, head, eyes, ring, panel, glowM, seed: bots.length * 1.7 };
   bots.push(b); return b;
 }
 export function tickBots(t) {

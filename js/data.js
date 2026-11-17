@@ -44,11 +44,21 @@ export const STATIONS = [
     std: 'Kèm spec, các trạng thái (hover, lỗi, rỗng), prototype và asset đã xuất.', real: 'Gửi mỗi link Figma.',
     pains: ['Thiếu trạng thái hover/lỗi/rỗng', 'Asset chưa xuất, tên layer lộn xộn'],
     tip: 'Dùng checklist bàn giao cho mọi task.' },
-  { key: 'dev', n: '09', name: 'Đảo Dev', short: 'Dev · Release', anchor: null,
-    desc: 'Dev build → designer soát (Design QA) → release → đo lường. Số liệu sau release có thể sinh task cải tiến.',
-    std: 'Có Design QA và release; sau release đo lường để cải tiến.', real: 'Code xong là xong; hay nghe “cái này không code được”.',
-    pains: ['Bản build lệch thiết kế', 'Release xong không ai xem số liệu'],
-    tip: 'Designer soát bản build trước release; hẹn ngày xem số liệu.' },
+  { key: 'dev', n: '09', name: 'Đảo Dev', short: 'Dev', anchor: null,
+    desc: 'Dev build → designer soát bản build (Design QA) → qua cầu sang đảo QC.',
+    std: 'Có Design QA trước khi chuyển QC.', real: 'Code xong đẩy thẳng sang QC; hay nghe “cái này không code được”.',
+    pains: ['Bản build lệch thiết kế', 'Dev không đọc spec'],
+    tip: 'Designer soát bản build trước khi chuyển QC.' },
+  { key: 'qc', n: '10', name: 'Đảo QC · Hải đăng', short: 'QC · Release', anchor: null,
+    desc: 'Team QC chạy test case trên bản build. Pass thì hải đăng bật đèn release và bắn pháo hoa; có lỗi thì trả về đảo Dev sửa.',
+    std: 'Test case viết từ tiêu chí nghiệm thu; pass mới release, sau đó đo lường.', real: 'Test dồn cuối sprint, nhiều lỗi, release xong không ai xem số liệu.',
+    pains: ['Bug chỉ ghi “không chạy được”', 'Test dồn vào ngày cuối sprint'],
+    tip: 'Viết test case từ tiêu chí nghiệm thu ngay ở bước Define.' },
+  { key: 'user', n: '11', name: 'Đảo User · Thành phố', short: 'User', anchor: null,
+    desc: 'Nơi người dùng thật dùng sản phẩm sau release: toà nhà cao tầng, văn phòng công ty. Cứ khoảng 5 giây lại có user gặp lỗi: đảo bắn pháo sáng cầu cứu, số cảnh báo nhảy lên và lỗi mới thành task hotfix quay về bến nhận task.',
+    std: 'Có QC và Design QA chặn trước nên user ít gặp lỗi; lỗi được ghi lại và sửa theo task hotfix.', real: 'Lỗi lọt ra production nhiều hơn; user phản hồi qua mạng xã hội trước khi team biết.',
+    pains: ['User báo lỗi chung chung “app bị lỗi”', 'Không có số liệu để tái hiện lỗi'],
+    tip: 'Gắn công cụ báo lỗi và đo lường ngay trong app trước khi release.' },
 ];
 
 export const FEATURES = [
@@ -60,5 +70,5 @@ export const FEATURES = [
 // trạng thái tính năng → nhãn + màu chấm (giống bảng tham khảo: đỏ / vàng / xanh)
 export const FSTATUS = {
   todo: ['chưa làm', 'gray'], doing: ['đang làm', 'red'], review: ['chờ duyệt', 'yellow'],
-  dev: ['dev đang build', 'yellow'], qa: ['design QA', 'yellow'], done: ['đã release', 'green'], redo: ['không code được', 'red'], improve: ['cải tiến sau đo lường', 'gray'],
+  dev: ['dev đang build', 'yellow'], qa: ['design QA', 'yellow'], qc: ['QC đang test', 'yellow'], bug: ['user báo lỗi', 'red'], done: ['đã release', 'green'], redo: ['không code được', 'red'], improve: ['cải tiến sau đo lường', 'gray'],
 };

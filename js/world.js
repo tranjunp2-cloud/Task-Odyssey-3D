@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { STATIONS, FEATURES } from './data.js';
-import { CL, CH, CW, PM, room, desk, chair, plant, tallPlant, wallBoard, bookshelf, sofa, roundTable, bigScreen, phoneStand, tripod, boxes, coffeeBar, bot, bots, tickBots, fileCard, screens } from './props.js';
+import { CL, CH, CW, PM, room, desk, chair, plant, tallPlant, wallBoard, bookshelf, sofa, roundTable, bigScreen, phoneStand, tripod, boxes, coffeeBar, bot, bots, tickBots, fileCard, screens, roomLights } from './props.js';
 export { CL, CH, TRAILER_TOP } from './props.js';
 
 export const COL = { dark: '#0b1a24', cream: '#efede8', ink: '#0a0f12', orange: '#ff5a1f', sea: '#0e3b5c' };
@@ -148,18 +148,11 @@ export function buildWorld(scene) {
       const cg = new THREE.BufferGeometry(); cg.setAttribute('position', new THREE.Float32BufferAttribute(cp, 3)); cg.setIndex(ci); cg.computeVertexNormals();
       const curb = new THREE.Mesh(cg, M.curb); curb.material.side = THREE.DoubleSide; curb.receiveShadow = true; add(curb); } }
 
-  // ---------- lamps along the inside of the road ----------
   const excl = [];   // circles kept clear of trees
   for (const k in frames) excl.push([frames[k].frame.pos.x, frames[k].frame.pos.z, 9]);
-  for (let d = 4; d < L; d += 13) {
-    if (Object.values(frames).some(f => { const x = Math.abs(f.d - d); return Math.min(x, L - x) < 8; })) continue;
-    if (Object.entries(VLOT).some(([k, v]) => { const x = Math.abs(frames[k].d + v.x - d); return Math.min(x, L - x) < 11; })) continue;
-    const f = W.at(d), x = f.pos.x + f.right.x * 3.2, z = f.pos.z + f.right.z * 3.2;
-    box(0.14, 4.2, 0.14, M.pole, x, 2.1, z);
-    const arm = box(1.1, 0.1, 0.12, M.pole, x - f.right.x * 0.5, 4.15, z - f.right.z * 0.5); arm.rotation.y = Math.atan2(-f.right.z, f.right.x);
-    box(0.4, 0.12, 0.3, M.lamp, x - f.right.x * 1.0, 4.07, z - f.right.z * 1.0);
-    const pool = plane(6, 6, M.pool, scene); pool.rotation.x = -Math.PI / 2; pool.position.set(x - f.right.x * 2, 0.05, z - f.right.z * 2);
-  }
+  const nFrameExcl = excl.length;
+  const obst = [];   // things a street lamp must not stand in (posts, booths, cranes…)
+  const obstL = (g, x, z, r) => { g.updateMatrixWorld(true); const p = g.localToWorld(new THREE.Vector3(x, 0, z)); obst.push([p.x, p.z, r]); };
 
   // ---------- people ----------
   W.people = [];
@@ -204,6 +197,7 @@ export function buildWorld(scene) {
     W.parks = { task: { slots: PARK, group: g } };
     { g.updateMatrixWorld(true); const c = g.localToWorld(new THREE.Vector3(-14, 0, 10)); excl.push([c.x, c.z, 10]); const c2 = g.localToWorld(new THREE.Vector3(0, 0, -5)); excl.push([c2.x, c2.z, 8]); }
     W.anim.gantry = { trolley, cables, spreader, TOP, stackZ: -5, laneZ: LANE, grabY: 0.96 + 3 * CH + 0.08 };
+    obstL(g, 0, 3.2, 3.4); obstL(g, 0, -5, 8);
   }
 
   // ---------- 02 research: research room with bookshelves, moodboard, interview corner ----------
@@ -295,7 +289,7 @@ export function buildWorld(scene) {
     plant(r.in, 4.3, -2.6);
     person('User', '#c9b6ff', r.in, -2.6, -0.7, { seat: true }); person('Tester', '#2bd47d', r.in, 2.6, 2.35, { seat: true }); person('User', '#ffd84d', r.in, -0.8, -0.6);
     bot(r.in, 3.6, -1.2, 'AI ghi chú', '3/5 người hoàn thành · 2 lỗi lớn');
-    W.anim.scan = { mat: scanM, x: AX };
+    W.anim.scan = { mat: scanM, x: AX }; obstL(g, AX, 0, 4.5);
   }
 
   // ---------- 07 review: the boss's office, booth, barrier on the forward lane ----------
@@ -314,7 +308,7 @@ export function buildWorld(scene) {
     const stripe = (() => { const [c, x] = canvas(256, 16); for (let i = 0; i < 8; i++) { x.fillStyle = i % 2 ? '#fff' : COL.orange; x.fillRect(i * 32, 0, 32, 16); } return tex(c); })();
     const arm = new THREE.Group(); arm.position.set(4.2, 1.05, 3.0); g.add(arm);
     { const a = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 3.0), new THREE.MeshStandardMaterial({ map: stripe })); a.position.z = -1.5; arm.add(a); }
-    W.anim.barrier = { arm, open: 0 };
+    W.anim.barrier = { arm, open: 0 }; obstL(g, 4.6, 3.8, 2.6);
   }
 
   // ---------- 08 handoff: handoff room, quay, ship-to-shore crane, ship, and 09 the dev island ----------
@@ -327,6 +321,7 @@ export function buildWorld(scene) {
     bot(r.in, -2.2, -0.8, 'AI xuất spec', 'Spec, asset, 12 trạng thái đã đủ ✔');
     box(26, 0.6, 7, M.quay, 0, -0.25, -6.5, g);
     board('CẢNG BÀN GIAO', 'handoff → dev', 3.6, 6, 3.4, 2.8, g, Math.PI); for (const dx of [-1.2, 1.2]) box(0.1, 2.2, 0.1, M.pole, 6 + dx, 1.1, 2.9, g);
+    obstL(g, 0, -4, 9.5); obstL(g, 6, 2.8, 2);
     const crane = new THREE.Group(); g.add(crane);
     for (const x of [-3.2, 3.2]) for (const z of [-1.8, -8.8]) box(0.4, STS, 0.4, M.white, x, STS / 2, z, crane);
     for (const z of [-1.8, -8.8]) box(6.8, 0.5, 0.5, M.orange, 0, STS, z, crane);
@@ -350,23 +345,108 @@ export function buildWorld(scene) {
     const sand = new THREE.Mesh(new THREE.CylinderGeometry(11.8, 12.2, 1, 48), M.sand); sand.position.y = -0.68; isle.add(sand);
     const foam = new THREE.Mesh(new THREE.RingGeometry(12, 13.4, 64), W.foamM); foam.rotation.x = -Math.PI / 2; foam.position.y = -0.5; isle.add(foam);
     const shallow = new THREE.Mesh(new THREE.RingGeometry(12, 19, 64), W.shallowM); shallow.rotation.x = -Math.PI / 2; shallow.position.y = -0.53; isle.add(shallow);
-    const dr = room(isle, { x: 0, z: -1.2, w: 9.4, d: 6.4, back: -1, accent: '#3fb5ff', board: sign('DEV TEAM', 'build · QA · release') });
+    const dr = room(isle, { x: 0, z: -1.2, w: 9.4, d: 6.4, back: -1, accent: '#3fb5ff', board: sign('DEV TEAM', 'build · design QA') });
     wallBoard(dr.in, 'wire', -1.5, 1.45, dr.wallZ, 3.2, Math.PI);
     desk(dr.in, -2.6, 1.6, Math.PI, { mon: 2, screen: 'code', s: 1, chairColor: '#3fb5ff' }); desk(dr.in, 0.6, 1.6, Math.PI, { mon: 2, screen: 'code', s: 2, chairColor: '#3fb5ff' });
     desk(dr.in, 3, -1.2, 0, { screen: 'ui', s: 5, chairColor: '#ff5a1f' }); coffeeBar(dr.in, dr.leftX + 0.35, -1.2, Math.PI / 2);
     person('Dev 1', '#3fb5ff', dr.in, -2.6, 2.35, { seat: true }); person('Dev 2', '#3fb5ff', dr.in, 0.6, 2.35, { seat: true }); person('Design QA', '#ff5a1f', dr.in, 3, -1.95, { seat: true });
     bot(dr.in, 1.6, -1.6, 'AI review code', 'Build #42: lệch 2px so với thiết kế');
     box(5, 0.3, 2.4, M.quay, 0, -0.05, 10.2, isle);
-    // release tower: the lamp flashes on every release
-    const tower = new THREE.Group(); tower.position.set(-6.4, 0, -5.6); isle.add(tower);
-    const tw = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.8, 6, 16), M.white); tw.position.y = 3; tower.add(tw);
-    for (const y of [1.6, 3.6]) { const band = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.74, 0.5, 16), M.orange); band.position.y = y; tower.add(band); }
-    const releaseM = new THREE.MeshStandardMaterial({ color: '#fff2c8', emissive: '#ffd27a', emissiveIntensity: 0.2 });
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 12), releaseM); lamp.position.y = 6.5; tower.add(lamp);
-    board('RELEASE', 'lên sóng →', 2.6, -6.4, 2.2, -4.4, isle);
-    W.isleTrees = [[6.8, 4.6], [-7, 3.4], [7.4, -4.6], [-2, 7.6]];
+    W.isleTrees = [[6.8, 4.6], [-7, 3.4], [7.4, -4.6], [-2, 7.6], [-6.6, -5.4]];
+    // ---------- QC island: QC lab + the release lighthouse, joined to the dev island by a bridge ----------
+    const qc = new THREE.Group(); qc.position.set(-27, 0, -47); g.add(qc);
+    { const d2 = new THREE.Mesh(new THREE.CylinderGeometry(10.5, 11, 1.2, 48), M.ground); d2.position.y = -0.6; d2.receiveShadow = true; qc.add(d2);
+      const s2 = new THREE.Mesh(new THREE.CylinderGeometry(12.8, 13.2, 1, 48), M.sand); s2.position.y = -0.68; qc.add(s2);
+      const f2 = new THREE.Mesh(new THREE.RingGeometry(13, 14.4, 64), W.foamM); f2.rotation.x = -Math.PI / 2; f2.position.y = -0.5; qc.add(f2);
+      const sh2 = new THREE.Mesh(new THREE.RingGeometry(13, 20, 64), W.shallowM); sh2.rotation.x = -Math.PI / 2; sh2.position.y = -0.53; qc.add(sh2); }
+    const qr = room(qc, { x: 1.5, z: 0.5, w: 9.4, d: 6.4, back: -1, accent: '#e9b949', board: sign('TEAM QC', 'test case · bug') });
+    qr.spots = [];
+    wallBoard(qr.in, 'qc', -1.2, 1.45, qr.wallZ, 4, Math.PI);
+    desk(qr.in, -2.6, 1.6, Math.PI, { mon: 2, screen: 'chart', s: 4, chairColor: '#e9b949' }); desk(qr.in, 0.8, 1.6, Math.PI, { mon: 2, screen: 'ui', s: 6, chairColor: '#e9b949' });
+    phoneStand(qr.in, 3, -1.2, 0); phoneStand(qr.in, 1.8, -1.6, 0); plant(qr.in, -4, -2.6);
+    person('Tester 1', '#e9b949', qr.in, -2.6, 2.35, { seat: true }); person('Tester 2', '#e9b949', qr.in, 0.8, 2.35, { seat: true }); person('QC Lead', '#2bd47d', qr.in, 2.4, -0.6);
+    bot(qr.in, -2.2, -1.2, 'AI test tự động', 'Chạy 248 test case hồi quy · báo 2 lỗi');
+    W.rooms.qc = qr; W.qcRoom = qr;
+    // lighthouse: striped tower, glass lantern, rotating beams
+    const lh = new THREE.Group(); lh.position.set(-6.2, 0, -5.4); qc.add(lh);
+    const redM = new THREE.MeshStandardMaterial({ color: '#d9412b', roughness: .5 });
+    for (let i = 0; i < 6; i++) { const r0 = 1.5 - i * 0.14, r1 = 1.5 - (i + 1) * 0.14; const seg = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, 1.8, 24), i % 2 ? redM : M.white); seg.position.y = 0.9 + i * 1.8; lh.add(seg); }
+    const gal = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.25, 0.18, 24), M.steel); gal.position.y = 10.9; lh.add(gal);
+    for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; box(0.05, 0.6, 0.05, M.steel, Math.cos(a) * 1.15, 11.3, Math.sin(a) * 1.15, lh); }
+    const releaseM = new THREE.MeshStandardMaterial({ color: '#fff2c8', emissive: '#ffd27a', emissiveIntensity: 0.6 });
+    const lampL = new THREE.Mesh(new THREE.SphereGeometry(0.42, 16, 12), releaseM); lampL.position.y = 11.6; lh.add(lampL);
+    { const ll = new THREE.PointLight('#ffe3a0', 0, 30, 1.4); ll.position.y = 11.6; lh.add(ll); W.lighthouseLight = ll; }
+    const lant = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 1.3, 16, 1, true), new THREE.MeshPhysicalMaterial({ color: '#cfeaf7', transparent: true, opacity: .3, roughness: .05, side: THREE.DoubleSide, depthWrite: false })); lant.position.y = 11.65; lh.add(lant);
+    const cap = new THREE.Mesh(new THREE.ConeGeometry(0.95, 0.9, 16), redM); cap.position.y = 12.75; lh.add(cap);
+    const beamM2 = new THREE.MeshBasicMaterial({ color: '#fff3c4', transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const beams = new THREE.Group(); beams.position.y = 11.6; lh.add(beams);
+    for (const s of [1, -1]) { const b = new THREE.Mesh(new THREE.ConeGeometry(2.2, 16, 20, 1, true), beamM2); b.rotation.z = s * Math.PI / 2; b.position.x = s * 8; beams.add(b); }
+    board('SẴN SÀNG RELEASE', 'QC pass → 🎆', 3.4, -6.2, 2.6, -3.6, qc);
+    W.qcTrees = [[7.2, 5.2], [-8.2, 3.6], [8.4, -4.8], [3, 8.6]];
+    // bridge dev island ↔ QC island
+    const A = new THREE.Vector3(-8, 0, -1.4).add(isle.position), Bq = new THREE.Vector3(9, 0, 1.2).add(qc.position), mid = A.clone().lerp(Bq, 0.5), len = A.distanceTo(Bq), ang = Math.atan2(-(Bq.z - A.z), Bq.x - A.x);
+    const bridge = new THREE.Group(); bridge.position.copy(mid); bridge.rotation.y = ang; g.add(bridge);
+    box(len, 0.25, 2.6, new THREE.MeshStandardMaterial({ color: '#b58a5c', roughness: .8 }), 0, 0.2, 0, bridge);
+    for (const z of [-1.25, 1.25]) { box(len, 0.08, 0.08, M.white, 0, 1.05, z, bridge); for (let x = -len / 2; x <= len / 2 + 0.01; x += len / 6) { box(0.12, 0.9, 0.12, M.white, x, 0.6, z, bridge); box(0.3, 1.2, 0.3, M.steel, x, -0.4, z, bridge); } }
+    g.updateMatrixWorld(true);
+    W.qc = { isle: qc, lighthouse: lh, beams, beamM: beamM2, bridgeA: g.localToWorld(A.clone().setY(0.9)), bridgeB: g.localToWorld(Bq.clone().setY(0.9)), lampTop: lh.localToWorld(new THREE.Vector3(0, 12, 0)) };
     W.anim.handoff = { crane, sts, stsCables, stsSpreader, STS, ship, slots, SHIP_DOCK, SHIP_ISLE, isle, group: g, releaseM };
     const iw = new THREE.Vector3(); isle.getWorldPosition(iw); W.devIsland = iw; excl.push([iw.x, iw.z, 13]);
+    const qw = new THREE.Vector3(); qc.getWorldPosition(qw); W.qcIsland = qw; excl.push([qw.x, qw.z, 14]);
+  }
+
+  // ---------- USER island: the city where people use the product after release ----------
+  { const U = new THREE.Group(); U.position.set(98, 0, 40); add(U);
+    const dU = new THREE.Mesh(new THREE.CylinderGeometry(17, 17.6, 1.2, 64), M.ground); dU.position.y = -0.6; dU.receiveShadow = true; U.add(dU);
+    const sU = new THREE.Mesh(new THREE.CylinderGeometry(19.4, 19.9, 1, 64), M.sand); sU.position.y = -0.68; U.add(sU);
+    const fU = new THREE.Mesh(new THREE.RingGeometry(19.6, 21.2, 80), W.foamM); fU.rotation.x = -Math.PI / 2; fU.position.y = -0.5; U.add(fU);
+    const shU = new THREE.Mesh(new THREE.RingGeometry(19.6, 27, 80), W.shallowM); shU.rotation.x = -Math.PI / 2; shU.position.y = -0.53; U.add(shU);
+    // streets: a ring road + a cross, and a plaza in the middle
+    const asphalt = new THREE.MeshStandardMaterial({ color: '#3d434a', roughness: .85 });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(12.2, 14.2, 64), asphalt); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.02; U.add(ring);
+    for (const r of [0, Math.PI / 2]) { const st = box(28, 0.03, 2, asphalt, 0, 0.02, 0, U); st.rotation.y = r; }
+    const plaza = new THREE.Mesh(new THREE.CircleGeometry(4.2, 40), M.curb); plaza.rotation.x = -Math.PI / 2; plaza.position.y = 0.04; U.add(plaza);
+    // towers
+    const towerMats = [], towers = [];
+    const winFor = h => { const t = winTex.clone(); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, Math.max(1, h / 7)); t.needsUpdate = true; return t; };
+    const COLS = ['#5f7f96', '#8fa4b3', '#d9d4c8', '#4a6375', '#b7c3cc', '#e8e2d6'];
+    const spots = [[-6.5, -6.5, 24], [6.5, -6.5, 18], [-6.5, 6.5, 14], [6.5, 6.5, 20], [-9.6, 0.1, 9], [9.6, 0.1, 11], [0.1, -9.6, 13], [0.1, 9.6, 8], [-3.2, -9.4, 7], [9.4, -3.4, 15], [-9.4, 4.2, 6], [3.6, 9.4, 10]];
+    spots.forEach(([x, z, h], i) => {
+      const w = i < 4 ? 4.6 : 3.4, d = i < 4 ? 4.6 : 3.2, t = winFor(h);
+      const m = new THREE.MeshStandardMaterial({ color: COLS[i % COLS.length], roughness: .45, metalness: i % 2 ? .25 : .05, emissive: '#ffffff', emissiveMap: t, emissiveIntensity: 0 }); towerMats.push(m);
+      const b = box(w, h, d, m, x, h / 2, z, U); towers.push([x, z, h]);
+      box(w + 0.15, 0.3, d + 0.15, i % 3 ? M.white : M.orange, x, h + 0.15, z, U);
+      if (i < 4) { box(w * 0.5, 1.2, d * 0.5, M.steel, x, h + 0.9, z, U); }
+    });
+    W.night.windows.push(...towerMats);
+    // company signs on the towers, facing the camera side
+    const signs = [['CÔNG TY A', 'đang dùng app'], ['STARTUP B', '12k user'], ['NGÂN HÀNG C', 'live ✓'], ['SHOP D', 'checkout mới']];
+    signs.forEach(([a, b2], i) => { const [x, z, h] = towers[i]; board(a, b2, 3.2, x, Math.min(h - 2, 9 + i), z + 2.32, U); });
+    // antenna with a blinking red light on the tallest tower
+    box(0.12, 6, 0.12, M.steel, -6.5, 24 + 3, -6.5, U);
+    const blinkM = new THREE.MeshBasicMaterial({ color: '#ff2a10' }); const blink = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8), blinkM); blink.position.set(-6.5, 30.2, -6.5); U.add(blink);
+    // plaza billboard: the released app on a giant screen
+    const bb = new THREE.Group(); bb.position.set(0, 0, -1); U.add(bb);
+    for (const sx of [-1, 1]) box(0.25, 5, 0.25, M.steel, sx * 2.6, 2.5, 0, bb);
+    box(6.2, 3.8, 0.3, PM.dark, 0, 5.6, 0, bb);
+    const appTex = (() => { const [c, x] = canvas(512, 300); x.fillStyle = '#0b1a24'; x.fillRect(0, 0, 512, 300); x.fillStyle = '#f5f3ee'; x.fillRect(150, 20, 212, 260); x.fillStyle = COL.orange; x.fillRect(166, 40, 180, 70);
+      x.fillStyle = '#9aa3a8'; for (let i = 0; i < 5; i++) x.fillRect(166, 128 + i * 22, 150 - i * 14, 10); x.fillStyle = '#2bd47d'; x.fillRect(166, 240, 120, 26);
+      x.fillStyle = '#fff'; x.font = '900 40px Montserrat'; x.fillText('APP', 30, 80); x.fillText('LIVE', 30, 128); x.fillStyle = '#2bd47d'; x.beginPath(); x.arc(40, 170, 12, 0, 7); x.fill(); return tex(c); })();
+    const scr = plane(5.8, 3.4, new THREE.MeshBasicMaterial({ map: appTex }), bb); scr.position.set(0, 5.6, 0.16);
+    // citizens walking around the ring road, looking at their phones
+    const walkers = [];
+    for (let i = 0; i < 10; i++) { const g2 = new THREE.Group(); U.add(g2);
+      const bodyM = new THREE.MeshStandardMaterial({ color: ['#3fb5ff', '#ff7aa8', '#e9b949', '#2bd47d', '#c9a6ff', '#ff5a1f'][i % 6] });
+      const bd = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.45, 4, 8), bodyM); bd.position.y = 0.55; g2.add(bd);
+      const hd = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), PM.skin); hd.position.y = 1.1; g2.add(hd);
+      const ph = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.2, 0.03), new THREE.MeshBasicMaterial({ color: '#9fe7ff' })); ph.position.set(0, 0.85, 0.22); g2.add(ph);
+      g2.traverse(o => { if (o.isMesh) o.castShadow = true; });
+      walkers.push({ g: g2, a: i / 10 * Math.PI * 2, r: 12.6 + (i % 2) * 1.2, sp: (i % 2 ? -1 : 1) * (0.12 + seeded(i) * 0.06) }); }
+    // trees in the corners
+    for (const [x, z] of [[-13, -9], [13, 9], [-12, 10], [12, -11], [0, 15.5], [-15.5, 2]]) { box(0.2, 1.6, 0.2, new THREE.MeshStandardMaterial({ color: '#6d5640' }), x, 0.8, z, U); const c = new THREE.Mesh(new THREE.IcosahedronGeometry(1.2, 1), new THREE.MeshStandardMaterial({ color: '#77ab63', flatShading: true })); c.position.set(x, 2.3, z); U.add(c); }
+    U.updateMatrixWorld(true);
+    W.user = { isle: U, pos: U.position.clone(), plaza: U.localToWorld(new THREE.Vector3(0, 4, -1)), roof: U.localToWorld(new THREE.Vector3(-6.5, 24.5, -6.5)), blinkM, walkers };
+    excl.push([U.position.x, U.position.z, 22]);
   }
 
   // ---------- department parking lots (between the road and each room) ----------
@@ -383,6 +463,20 @@ export function buildWorld(scene) {
       g.updateMatrixWorld(true); const c = g.localToWorld(new THREE.Vector3(v.x, 0, zc)); excl.push([c.x, c.z, 6 + v.rows]);
     } }
 
+  // ---------- street lamps: one every ~11 units, on whichever side of the road is free ----------
+  { const far = ([ox, oz, r], x, z) => (ox - x) ** 2 + (oz - z) ** 2 >= r * r;
+    const free = (x, z) => obst.every(o => far(o, x, z)) && excl.slice(nFrameExcl).every(([ex, ez, r]) => far([ex, ez, r * 0.85], x, z));
+    let i = 0;
+    for (let d = 3; d < L; d += 11, i++) { const f = W.at(d);
+      for (const s of i % 2 ? [1, -1] : [-1, 1]) {
+        const x = f.pos.x + f.right.x * 3.3 * s, z = f.pos.z + f.right.z * 3.3 * s; if (!free(x, z)) continue;
+        const rx = f.right.x * s, rz = f.right.z * s;   // points away from the road
+        box(0.14, 4.2, 0.14, M.pole, x, 2.1, z);
+        const arm = box(1.1, 0.1, 0.12, M.pole, x - rx * 0.5, 4.15, z - rz * 0.5); arm.rotation.y = Math.atan2(-rz, rx);
+        box(0.4, 0.12, 0.3, M.lamp, x - rx * 1.0, 4.07, z - rz * 1.0);
+        const pool = plane(8, 8, M.pool, scene); pool.rotation.x = -Math.PI / 2; pool.position.set(x - rx * 2.2, 0.06, z - rz * 2.2);
+        obst.push([x, z, 2]); break; } } }
+
   // ---------- centre of the loop: a pond and the deadline café ----------
   { const lake = new THREE.Mesh(new THREE.CircleGeometry(9, 48), new THREE.MeshStandardMaterial({ color: '#3f8fb5', roughness: .25, metalness: .1 })); lake.rotation.x = -Math.PI / 2; lake.position.set(-8, 0.04, 8); add(lake);
     const rim = new THREE.Mesh(new THREE.RingGeometry(9, 10, 48), M.sand); rim.rotation.x = -Math.PI / 2; rim.position.set(-8, 0.05, 8); add(rim);
@@ -391,6 +485,7 @@ export function buildWorld(scene) {
     box(7, 3.2, 5, M.bldLight, 0, 1.6, 0, cafe); box(7.6, 0.35, 5.8, M.orange, 0, 3.35, 0, cafe);
     for (let i = 0; i < 5; i++) { const w = box(1.3, 0.12, 2.2, i % 2 ? M.white : M.orange, -2.8 + i * 1.4, 2.9, 3.4, cafe); w.rotation.x = 0.35; }
     board('CÀ PHÊ', '☕ chạy deadline', 3.2, 0, 5.0, 2.55, cafe);
+    { const cl = new THREE.PointLight('#ffc98a', 0, 14, 1.6); cl.position.set(0, 2.6, 4.4); cafe.add(cl); roomLights.push(cl); }
     for (const [x, z] of [[-2, 5.5], [1.5, 6]]) { box(1.2, 0.08, 1.2, M.white, x, 0.75, z, cafe); box(0.1, 0.75, 0.1, M.pole, x, 0.375, z, cafe); }
     person('Designer', '#ff5a1f', cafe, -2.9, 5.8); person('PM', '#3fb5ff', cafe, 2.6, 6.4);
     excl.push([-8, 8, 12], [14, 12, 9]); W.cafe = cafe;
@@ -433,7 +528,7 @@ export function buildWorld(scene) {
     const palms = [];
     for (let i = 0; i < 140; i++) { const d = (i + seeded(i) * .6) / 140 * L; if (near(d, hD, 26) || seeded(i + 50) < .42) continue;
       const f = W.at(d), m = margin(d) + 0.8 + seeded(i + 3) * 1.3; palms.push([f.pos.x - f.right.x * m, f.pos.z - f.right.z * m, -f.right.x, -f.right.z, 0.8 + seeded(i + 9) * 0.45, i]); }
-    { const isle = W.anim.handoff.isle; isle.updateMatrixWorld(true); W.isleTrees.forEach(([x, z], k) => { const p = isle.localToWorld(new THREE.Vector3(x, 0, z)), o = p.clone().sub(W.devIsland).setY(0).normalize(); palms.push([p.x, p.z, o.x, o.z, 0.85, 900 + k]); }); }
+    for (const [isle, pts, c] of [[W.anim.handoff.isle, W.isleTrees, W.devIsland], [W.qc.isle, W.qcTrees, W.qcIsland]]) { isle.updateMatrixWorld(true); pts.forEach(([x, z], k) => { const p = isle.localToWorld(new THREE.Vector3(x, 0, z)), o = p.clone().sub(c).setY(0).normalize(); palms.push([p.x, p.z, o.x, o.z, 0.85, 900 + k + palms.length]); }); }
     const trunkG = new THREE.CylinderGeometry(0.11, 0.15, 1, 7), leafG = new THREE.SphereGeometry(1, 8, 4).scale(1.25, .06, .28).translate(1.2, 0, 0), nutG = new THREE.SphereGeometry(.13, 8, 6);
     const trunkI = new THREE.InstancedMesh(trunkG, new THREE.MeshStandardMaterial({ color: '#8a6a4a', roughness: .9 }), palms.length * 4);
     const leafI = new THREE.InstancedMesh(leafG, new THREE.MeshStandardMaterial({ color: '#4f9a58', roughness: .8, side: THREE.DoubleSide }), palms.length * 8);
@@ -473,13 +568,59 @@ export function buildWorld(scene) {
       const tw = box(0.9, 0.03, 1.8, new THREE.MeshStandardMaterial({ color: UC[(k + 2) % 5] }), 1.1, -0.1, 0.3, u); tw.rotation.y = 0.4; }
   }
 
-  W.night.screens = screens; W.bots = bots;
-  W.tick = t => { tickBots(t); W.foamM.opacity = 0.42 + 0.18 * Math.sin(t * 0.9); W.shallowM.opacity = 0.3 + 0.04 * Math.sin(t * 0.5); W.jet.scale.y = 1 + 0.12 * Math.sin(t * 6); };
+  W.night.screens = screens; W.bots = bots; W.night.roomLights = roomLights;
+  // ---------- fireworks over the lighthouse ----------
+  { const FC = ['#ff5a1f', '#ffd84d', '#5ff3ff', '#ff7aa8', '#2bd47d', '#c9a6ff', '#ffffff'];
+    const rockets = [], bursts = [], queue = []; let last = null; const col = new THREE.Color();
+    W.fireworks = (n = 4) => { for (let k = 0; k < n; k++) queue.push(k * 0.32 + Math.random() * 0.1); };
+    W.tickFireworks = t => {
+      const dt = last === null ? 0 : Math.max(0, Math.min(0.1, t - last)); last = t; if (!dt) return;
+      for (let i = queue.length - 1; i >= 0; i--) if ((queue[i] -= dt) <= 0) { queue.splice(i, 1);
+        const m = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), new THREE.MeshBasicMaterial({ color: '#fff3c4' })); m.position.copy(W.qc.lampTop); scene.add(m);
+        rockets.push({ m, v: new THREE.Vector3((Math.random() - .5) * 6, 11 + Math.random() * 3, (Math.random() - .5) * 6), life: 0.75 + Math.random() * 0.25 }); }
+      for (let i = rockets.length - 1; i >= 0; i--) { const r = rockets[i]; r.m.position.addScaledVector(r.v, dt); r.v.y -= 9 * dt;
+        if ((r.life -= dt) <= 0) { rockets.splice(i, 1); scene.remove(r.m); r.m.geometry.dispose();
+          const N = 220, pos = new Float32Array(N * 3), cols = new Float32Array(N * 3), vel = [], c1 = FC[Math.random() * FC.length | 0], c2 = FC[Math.random() * FC.length | 0];
+          for (let k = 0; k < N; k++) { pos.set([r.m.position.x, r.m.position.y, r.m.position.z], k * 3); const u = Math.random() * 2 - 1, a = Math.random() * 6.283, s = Math.sqrt(1 - u * u), sp = 5 + Math.random() * 2.5;
+            vel.push(new THREE.Vector3(s * Math.cos(a) * sp, u * sp, s * Math.sin(a) * sp)); col.set(k % 3 ? c1 : c2); cols.set([col.r, col.g, col.b], k * 3); }
+          const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+          const mat = new THREE.PointsMaterial({ size: 1.8, map: poolTex, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+          const pts = new THREE.Points(geo, mat); scene.add(pts); bursts.push({ pts, vel, life: 2.0 }); } }
+      for (let i = bursts.length - 1; i >= 0; i--) { const b = bursts[i], p = b.pts.geometry.attributes.position;
+        for (let k = 0; k < b.vel.length; k++) { const v = b.vel[k]; v.y -= 3.2 * dt; v.multiplyScalar(1 - 1.2 * dt); p.array[k * 3] += v.x * dt; p.array[k * 3 + 1] += v.y * dt; p.array[k * 3 + 2] += v.z * dt; }
+        p.needsUpdate = true; b.life -= dt; b.pts.material.opacity = Math.min(1, b.life / 1.2); b.pts.material.size = 1.8 + (2 - b.life) * 0.4;
+        if (b.life <= 0) { bursts.splice(i, 1); scene.remove(b.pts); b.pts.geometry.dispose(); b.pts.material.dispose(); } }
+    }; }
+  // ---------- released features fly from the lighthouse to the user city; SOS flares when users hit a bug ----------
+  { const flights = [], flares = []; let last = null;
+    const smokeM = new THREE.MeshBasicMaterial({ color: '#c9c3b7', transparent: true, opacity: .5, depthWrite: false });
+    W.sendToUsers = color => { const c = fileCard(color, ''); c.scale.setScalar(0.8); scene.add(c); flights.push({ c, k: 0 }); };
+    W.flare = () => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), new THREE.MeshBasicMaterial({ color: '#ff3b1f' })); m.position.copy(W.user.roof); scene.add(m);
+      const glow = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), new THREE.MeshBasicMaterial({ map: poolTex, color: '#ff3b1f', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })); m.add(glow);
+      const light = new THREE.PointLight('#ff3b1f', 0, 60, 1.2); m.add(light);
+      flares.push({ m, glow, light, v: 11, t: 0, puffs: [] }); };
+    W.tickUser = (t, cam) => {
+      const dt = last === null ? 0 : Math.max(0, Math.min(0.1, t - last)); last = t;
+      W.user.blinkM.color.set(Math.sin(t * 4) > 0.3 ? '#ff2a10' : '#3a0a05');
+      for (const w of W.user.walkers) { w.a += w.sp * dt; w.g.position.set(Math.cos(w.a) * w.r, Math.abs(Math.sin(t * 8 + w.r)) * 0.05, Math.sin(w.a) * w.r); w.g.rotation.y = -w.a + (w.sp > 0 ? Math.PI : 0); }
+      for (let i = flights.length - 1; i >= 0; i--) { const f = flights[i]; f.k += dt / 3.2; const k = Math.min(1, f.k), e = k * k * (3 - 2 * k);
+        f.c.position.lerpVectors(W.qc.lampTop, W.user.plaza, e); f.c.position.y += Math.sin(k * Math.PI) * 26; f.c.rotation.y += dt * 3;
+        if (f.k >= 1) { scene.remove(f.c); flights.splice(i, 1); } }
+      for (let i = flares.length - 1; i >= 0; i--) { const f = flares[i]; f.t += dt;
+        if (f.t < 2.2) { f.m.position.y += f.v * dt; f.v = Math.max(1, f.v - 4.5 * dt);
+          if (Math.random() < 0.6) { const p = new THREE.Mesh(new THREE.SphereGeometry(0.3, 6, 5), smokeM.clone()); p.position.copy(f.m.position); scene.add(p); f.puffs.push({ p, life: 2.5 }); } }
+        else { f.m.position.y -= 1.1 * dt; f.m.position.x += Math.sin(f.t * 2) * 0.02; const fl = 0.8 + 0.2 * Math.sin(f.t * 30);
+          f.glow.material.opacity = Math.min(1, (f.t - 2.2) * 3) * fl * (f.t > 6 ? Math.max(0, 1 - (f.t - 6) / 1.2) : 1); f.light.intensity = f.glow.material.opacity * 400; }
+        if (cam) f.glow.quaternion.copy(cam.quaternion);
+        for (let j = f.puffs.length - 1; j >= 0; j--) { const q = f.puffs[j]; q.life -= dt; q.p.scale.setScalar(1 + (2.5 - q.life) * 1.2); q.p.material.opacity = Math.max(0, q.life / 2.5 * 0.45); if (q.life <= 0) { scene.remove(q.p); q.p.material.dispose(); f.puffs.splice(j, 1); } }
+        if (f.t > 7.4 && !f.puffs.length) { scene.remove(f.m); flares.splice(i, 1); } }
+    }; }
+  W.tick = (t, cam) => { tickBots(t); W.qc.beams.rotation.y = t * 0.9; W.tickFireworks(t); W.tickUser(t, cam); W.foamM.opacity = 0.42 + 0.18 * Math.sin(t * 0.9); W.shallowM.opacity = 0.3 + 0.04 * Math.sin(t * 0.5); W.jet.scale.y = 1 + 0.12 * Math.sin(t * 6); };
 
   // stations: positions for the camera + stop distances for the trucks
   for (const s of STATIONS) {
     if (frames[s.key]) { const f = frames[s.key]; W.stations[s.key] = { ...s, d: f.d, group: f.group, pos: f.frame.pos, tan: f.frame.tan, right: f.frame.right }; }
-    else W.stations[s.key] = { ...s, d: null, group: W.anim.handoff.isle, pos: W.devIsland.clone(), tan: frames.handoff.frame.tan, right: frames.handoff.frame.right };
+    else W.stations[s.key] = { ...s, d: null, group: s.key === 'qc' ? W.qc.isle : s.key === 'user' ? W.user.isle : W.anim.handoff.isle, pos: (s.key === 'qc' ? W.qcIsland : s.key === 'user' ? W.user.pos : W.devIsland).clone(), tan: frames.handoff.frame.tan, right: frames.handoff.frame.right };
   }
 
   scene.traverse(o => { if (o.isMesh && !o.material.transparent && !o.isInstancedMesh && o !== sea) { o.castShadow = true; o.receiveShadow = true; } });
