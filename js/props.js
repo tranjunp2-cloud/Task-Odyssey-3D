@@ -1,5 +1,6 @@
 // Đồ nội thất, phòng ban, bot AI, siêu xe và "thẻ file" cho bản đồ Design Trip.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 export const CL = 1.6, CH = 0.2, CW = 1.1;          // thẻ file (cargo): dài, dày, rộng
 export const TRAILER_TOP = 1.42;                      // đáy thẻ file khi nổi trên nóc siêu xe
@@ -119,7 +120,7 @@ function holoTex(text) {
 
 // ---------- furniture ----------
 export function chair(p, x, z, ry = 0, color = '#0b1a24') {
-  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; p.add(g);
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; p.add(g); g.userData.seat = 1;   // người ngồi quay mặt về +z của ghế
   const m = colorMat(color);
   B(.5, .09, .5, m, 0, .48, 0, g); B(.5, .55, .08, m, 0, .8, -.24, g); C(.03, .03, .4, PM.metal, 0, .25, 0, g, 8); B(.5, .04, .08, PM.dark, 0, .04, 0, g); B(.08, .04, .5, PM.dark, 0, .04, 0, g);
   return g;
@@ -163,7 +164,7 @@ export function bookshelf(p, x, z, ry = 0, w = 2) {
   return g;
 }
 export function sofa(p, x, z, ry = 0, color = '#1f6f8b') {
-  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; p.add(g); const m = colorMat(color);
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; p.add(g); g.userData.seat = -1; const m = colorMat(color);   // ngồi sofa quay mặt về -z
   B(1.8, .4, .8, m, 0, .3, 0, g); B(1.8, .5, .22, m, 0, .65, .3, g); for (const sx of [-1, 1]) B(.2, .5, .8, m, sx * .9, .45, 0, g);
   B(.5, .14, .5, colorMat('#f4f2ee'), -.4, .55, .05, g);
   return g;
@@ -338,20 +339,115 @@ export function makeCar(color, poolTex, headM, tailM, beamM, hair = '#2a1d16') {
   return { g, wheels, revM, revPoolM, underM, drv };
 }
 
-// ---------- the designer on foot (gets out of the car and walks into the room) ----------
-export function makeWalker(hair) {
+// ---------- nhân vật người: đầu (mắt, lông mày, mũi, miệng, tai, tóc), cổ, thân áo, thắt lưng, hông, tay 2 đoạn + bàn tay, chân 2 đoạn + giày ----------
+// Mỗi phần cứng được gộp thành một mesh dùng màu đỉnh (vertex color) để mỗi người chỉ tốn vài draw call.
+// Hướng mặt: +z. Cao khoảng 1.7 khi đứng. pose: 'stand' | 'seat' (ngồi ghế cao 0.48) | 'carry' (2 tay ôm thẻ trước ngực) | 'phone' (tay phải cầm điện thoại)
+const HUMAN_M = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .62 });
+const SKINS = ['#f1c7a5', '#e8b48f', '#d39b72', '#a86f4c', '#f6d6bd', '#7a4d33'];
+const HAIRS = ['#2a1d16', '#111111', '#6b4226', '#c98b4b', '#3b2a20', '#8a8f96', '#a33b2b'];
+const PANTS = ['#2a3440', '#1d2a38', '#4a3b2f', '#5c6b7a', '#2f2f35', '#7a6a55', '#33475b'];
+const SHOES = ['#1b1f24', '#f4f2ee', '#6b4226', '#ff5a1f', '#2a3440'];
+const _hm = new THREE.Matrix4(), _hq = new THREE.Quaternion(), _he = new THREE.Euler(), _hv = new THREE.Vector3(), _hs = new THREE.Vector3();
+const hp = (geo, color, pos = [0, 0, 0], rot = [0, 0, 0], scl = [1, 1, 1]) => {
+  const g = geo.index ? geo.toNonIndexed() : geo.clone(); g.deleteAttribute('uv');
+  _hm.compose(_hv.set(...pos), _hq.setFromEuler(_he.set(...rot)), _hs.set(...scl)); g.applyMatrix4(_hm);
+  const c = new THREE.Color(color), n = g.attributes.position.count, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(a, 3)); return g; };
+const hmesh = parts => { const m = new THREE.Mesh(mergeGeometries(parts), HUMAN_M); m.castShadow = true; return m; };
+const HG = {   // hình khối dùng chung
+  sph: new THREE.SphereGeometry(1, 16, 12), sphLo: new THREE.SphereGeometry(1, 10, 8),
+  torso: new THREE.CylinderGeometry(0.165, 0.14, 0.44, 16), belt: new THREE.CylinderGeometry(0.145, 0.145, 0.045, 16), neck: new THREE.CylinderGeometry(0.05, 0.055, 0.09, 10),
+  collar: new THREE.TorusGeometry(0.062, 0.02, 6, 16), thigh: new THREE.CapsuleGeometry(0.076, 0.26, 4, 10), shin: new THREE.CapsuleGeometry(0.064, 0.26, 4, 10),
+  shinSeat: new THREE.CapsuleGeometry(0.064, 0.3, 4, 10), upper: new THREE.CapsuleGeometry(0.056, 0.17, 4, 10), fore: new THREE.CapsuleGeometry(0.047, 0.16, 4, 10),
+  shoe: new THREE.BoxGeometry(0.12, 0.08, 0.24), sole: new THREE.BoxGeometry(0.126, 0.025, 0.25), brow: new THREE.BoxGeometry(0.062, 0.014, 0.016), mouth: new THREE.BoxGeometry(0.06, 0.013, 0.01),
+  hairTop: new THREE.SphereGeometry(0.177, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.47), hairBack: new THREE.SphereGeometry(0.174, 18, 12, Math.PI, Math.PI, 0, Math.PI * 0.8),
+  longHair: new THREE.BoxGeometry(0.3, 0.34, 0.09), tail: new THREE.CapsuleGeometry(0.045, 0.18, 4, 8), lens: new THREE.TorusGeometry(0.036, 0.008, 6, 14),
+  capTop: new THREE.SphereGeometry(0.183, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.42), brim: new THREE.BoxGeometry(0.2, 0.022, 0.15),
+};
+export function makeHuman({ seed = 0, shirt = '#3fb5ff', pants, hair, skin, shoes, style, pose = 'stand', glasses, longSleeve } = {}) {
+  const r = k => seeded(seed * 7.13 + k);
+  skin ??= SKINS[Math.floor(r(1) * SKINS.length)]; hair ??= HAIRS[Math.floor(r(2) * HAIRS.length)]; pants ??= PANTS[Math.floor(r(3) * PANTS.length)];
+  shoes ??= SHOES[Math.floor(r(4) * SHOES.length)]; style ??= Math.floor(r(5) * 5); glasses ??= r(6) > 0.72; longSleeve ??= r(7) > 0.5;
+  const sleeve = longSleeve ? shirt : skin, collarC = r(8) > 0.5 ? '#f4f2ee' : shirt, beltC = '#3a2a20', lip = '#b5524a', eyeW = '#ffffff', pupil = '#1b1f24';
+  const seat = pose === 'seat', D = seat ? 0.26 : 0;   // ngồi: hạ thân trên xuống
   const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.42, 4, 10), colorMat('#f4f2ee')); body.position.y = 0.78; g.add(body);
-  const legs = [-1, 1].map(sx => { const pivot = new THREE.Group(); pivot.position.set(sx * 0.1, 0.5, 0); g.add(pivot);
-    const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.32, 4, 8), colorMat('#1d2a38')); leg.position.y = -0.24; pivot.add(leg); return pivot; });
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), PM.skin); head.position.y = 1.35; g.add(head);
-  const hairM = new THREE.Mesh(new THREE.SphereGeometry(0.212, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), colorMat(hair)); hairM.position.set(0, 1.37, -0.02); g.add(hairM);
-  const phones = new THREE.Mesh(new THREE.TorusGeometry(0.215, 0.03, 6, 18, Math.PI), colorMat('#ff5a1f')); phones.position.y = 1.37; g.add(phones);
+  // ---- thân trên + đầu (một mesh) ----
+  const up = [], Y = y => y - D;
+  up.push(hp(HG.sph, pants, [0, Y(0.84), 0], [0, 0, 0], [0.17, 0.11, 0.125]));                  // hông
+  up.push(hp(HG.torso, shirt, [0, Y(1.07), 0], [0, 0, 0], [1, 1, 0.68]));                       // thân áo
+  up.push(hp(HG.sph, shirt, [0, Y(1.285), 0], [0, 0, 0], [0.168, 0.075, 0.115]));               // vai tròn
+  up.push(hp(HG.belt, beltC, [0, Y(0.865), 0], [0, 0, 0], [1, 1, 0.7]));                        // thắt lưng
+  up.push(hp(HG.sphLo, '#d9b45a', [0, Y(0.865), 0.1], [0, 0, 0], [0.025, 0.02, 0.01]));         // khoá thắt lưng
+  up.push(hp(HG.collar, collarC, [0, Y(1.335), 0], [Math.PI / 2, 0, 0], [1, 1, 0.8]));          // cổ áo
+  for (const sx of [-1, 1]) up.push(hp(HG.sph, shirt, [sx * 0.185, Y(1.27), 0], [0, 0, 0], [0.072, 0.072, 0.072]));
+  up.push(hp(HG.neck, skin, [0, Y(1.375), 0]));                                                 // cổ
+  up.push(hp(HG.sph, skin, [0, Y(1.53), 0.005], [0, 0, 0], [0.165, 0.178, 0.162]));            // đầu
+  for (const sx of [-1, 1]) {
+    up.push(hp(HG.sphLo, skin, [sx * 0.16, Y(1.525), -0.005], [0, 0, 0], [0.022, 0.04, 0.032]));    // tai
+    up.push(hp(HG.sphLo, eyeW, [sx * 0.058, Y(1.555), 0.142], [0, 0, 0], [0.028, 0.026, 0.016]));  // lòng trắng mắt
+    up.push(hp(HG.sphLo, pupil, [sx * 0.058, Y(1.553), 0.155], [0, 0, 0], [0.016, 0.017, 0.008])); // con ngươi
+    up.push(hp(HG.brow, hair, [sx * 0.06, Y(1.598), 0.152], [0, 0, sx * -0.12]));                  // lông mày
+  }
+  up.push(hp(HG.sphLo, skin, [0, Y(1.515), 0.162], [0, 0, 0], [0.024, 0.032, 0.026]));          // mũi
+  up.push(hp(HG.mouth, lip, [0, Y(1.465), 0.152], [0.15, 0, 0]));                               // miệng
+  if (style !== 4) up.push(hp(HG.hairTop, hair, [0, Y(1.545), -0.005]));                        // tóc
+  up.push(hp(HG.hairBack, hair, [0, Y(1.54), -0.01]));
+  if (style === 1) up.push(hp(HG.longHair, hair, [0, Y(1.37), -0.105], [0.08, 0, 0]));          // tóc dài
+  if (style === 2) up.push(hp(HG.sph, hair, [0, Y(1.72), -0.07], [0, 0, 0], [0.075, 0.07, 0.075]));   // búi tóc
+  if (style === 3) up.push(hp(HG.tail, hair, [0, Y(1.46), -0.2], [0.55, 0, 0]));                // đuôi ngựa
+  if (style === 4) { const capC = ['#ff5a1f', '#1f6f8b', '#2bd47d', '#e9b949'][Math.floor(r(9) * 4)];   // mũ lưỡi trai
+    up.push(hp(HG.capTop, capC, [0, Y(1.56), -0.005])); up.push(hp(HG.brim, capC, [0, Y(1.635), 0.15], [-0.12, 0, 0])); }
+  if (glasses) { for (const sx of [-1, 1]) up.push(hp(HG.lens, '#1b1f24', [sx * 0.058, Y(1.555), 0.168]));
+    up.push(hp(HG.brow, '#1b1f24', [0, Y(1.56), 0.17], [0, 0, 0], [0.4, 0.6, 0.6])); }
+  // ---- tay: bắp tay (tay áo) + cẳng tay + bàn tay ----
+  const armParts = (sx, kind) => { const P = [];
+    if (kind === 'hang') { P.push(hp(HG.upper, shirt, [0, -0.14, 0])); P.push(hp(HG.fore, sleeve, [0, -0.355, 0.01])); P.push(hp(HG.sph, skin, [0, -0.5, 0.015], [0, 0, 0], [0.042, 0.058, 0.035])); }
+    else {   // khuỷu tay gập: cẳng tay đưa ra trước (ôm thẻ, cầm điện thoại, gõ bàn phím)
+      const a = kind === 'phone' ? -0.25 : kind === 'type' ? -0.55 : -0.4, l = 0.28, ey = -l * Math.cos(a), ez = -l * Math.sin(a);
+      const fa = kind === 'phone' ? -2.2 : kind === 'type' ? -1.62 : -1.45, fl = 0.24, hx = -sx * (kind === 'type' ? 0.02 : 0.06);
+      P.push(hp(HG.upper, shirt, [0, ey / 2, ez / 2], [a, 0, 0]));
+      P.push(hp(HG.fore, sleeve, [hx / 2, ey - fl / 2 * Math.cos(fa), ez - fl / 2 * Math.sin(fa)], [fa, 0, 0]));
+      P.push(hp(HG.sph, skin, [hx, ey - fl * Math.cos(fa), ez - fl * Math.sin(fa)], [fa, 0, 0], [0.042, 0.058, 0.035])); }
+    return P; };
+  const armKind = sx => pose === 'carry' ? 'bend' : pose === 'seat' ? 'type' : pose === 'phone' && sx > 0 ? 'phone' : 'hang';
+  const handPos = sx => { const k = armKind(sx); if (k === 'hang') return new THREE.Vector3(0, -0.5, 0.015);
+    const a = k === 'phone' ? -0.25 : k === 'type' ? -0.55 : -0.4, fa = k === 'phone' ? -2.2 : k === 'type' ? -1.62 : -1.45, ey = -0.28 * Math.cos(a), ez = -0.28 * Math.sin(a); return new THREE.Vector3(0, ey - 0.24 * Math.cos(fa), ez - 0.24 * Math.sin(fa)); };
+  // ---- chân: đùi + ống chân (quần) + giày có đế ----
+  const legParts = () => seat
+    ? [hp(HG.thigh, pants, [0, 0, 0.2], [Math.PI / 2, 0, 0]), hp(HG.shinSeat, pants, [0, -0.25, 0.42]), hp(HG.shoe, shoes, [0, -0.5, 0.47]), hp(HG.sole, '#e9e4da', [0, -0.535, 0.47])]
+    : [hp(HG.thigh, pants, [0, -0.2, 0]), hp(HG.shin, pants, [0, -0.56, 0.005]), hp(HG.shoe, shoes, [0, -0.76, 0.035]), hp(HG.sole, '#e9e4da', [0, -0.788, 0.035])];
+  const legs = [], arms = []; let hand = null;
+  if (seat) {   // ngồi: gộp hết thành 1 mesh (không cử động chân tay)
+    const all = [...up];
+    for (const sx of [-1, 1]) { const off = new THREE.Matrix4().makeTranslation(sx * 0.095, 0.8 - D, 0); legParts().forEach(p => all.push(p.applyMatrix4(off)));
+      const ao = new THREE.Matrix4().makeTranslation(sx * 0.205, 1.28 - D, 0); armParts(sx, 'type').forEach(p => all.push(p.applyMatrix4(ao))); }
+    g.add(hmesh(all));
+  } else {
+    g.add(hmesh(up));
+    for (const sx of [-1, 1]) { const lp = new THREE.Group(); lp.position.set(sx * 0.095, 0.8, 0); lp.add(hmesh(legParts())); g.add(lp); legs.push(lp);
+      const ap = new THREE.Group(); ap.position.set(sx * 0.205, 1.28, 0); ap.rotation.z = sx * 0.06; ap.add(hmesh(armParts(sx, armKind(sx)))); g.add(ap); arms.push(ap);
+      if (pose === 'phone' && sx > 0) { hand = new THREE.Object3D(); hand.position.copy(handPos(sx)); ap.add(hand); } }
+  }
+  return { g, legs, arms, hand, swingArms: pose === 'stand' ? arms : pose === 'phone' ? [arms[0]] : [] };
+}
+// bước đi: chân đánh ra trước/sau, tay đánh ngược chiều chân
+export function walkCycle(h, phase, amt = 0.55) { const s = Math.sin(phase) * amt;
+  if (h.legs.length) { h.legs[0].rotation.x = s; h.legs[1].rotation.x = -s; }
+  if (h.swingArms.length) { h.swingArms.forEach((a, i) => a.rotation.x = (i === 0 ? -s : s) * 0.8); } }
+
+// ---------- the designer on foot (gets out of the car and walks into the room) ----------
+export function makeWalker(hair, seed = 0) {
+  const h = makeHuman({ seed: 500 + seed, shirt: '#f4f2ee', hair, pants: '#1d2a38', pose: 'carry' });
+  const g = h.g;
   const cardM = new THREE.MeshStandardMaterial({ color: '#ff5a1f', emissive: '#ff5a1f', emissiveIntensity: 0.25, roughness: .4 });
-  const card = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.3, 0.05), cardM); card.position.set(0, 0.85, 0.26); card.rotation.x = -0.25; g.add(card);
+  const card = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.3, 0.05), cardM); card.position.set(0, 0.98, 0.36); card.rotation.x = -0.25; g.add(card);
+  // tai nghe cam của designer
+  const phones = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.025, 6, 18, Math.PI), colorMat('#ff5a1f')); phones.position.y = 1.55; g.add(phones);
+  for (const sx of [-1, 1]) { const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.05, 12), colorMat('#ff5a1f')); cup.rotation.z = Math.PI / 2; cup.position.set(sx * 0.185, 1.53, 0); g.add(cup); }
   g.traverse(o => { if (o.isMesh) o.castShadow = true; });
   g.visible = false;
-  return { g, legs, card, cardM };
+  return { g, legs: h.legs, human: h, card, cardM };
 }
 
 // ---------- mini design agent: one per feature plot in the design studio ----------

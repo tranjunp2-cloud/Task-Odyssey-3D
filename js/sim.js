@@ -65,7 +65,7 @@ export class Sim {
     start.forEach(([key, mode], i) => {
       const m = makeTruck(PAL[i % PAL.length], world.poolTex, i), tr = { i, ...m, d: 0, lane: LANE, laneT: LANE, v: 0, mode: 'drive', stop: 0, timer: 0, task: null, cargo: null, dist: 0, status: '', bounce: 0 };
       scene.add(m.g); m.g.userData.truck = tr; this.trucks.push(tr);
-      { const wk = makeWalker(HAIR[i % HAIR.length]); scene.add(wk.g); tr.walker = { ...wk, state: 'car', pts: [], i: 0, home: [], room: null }; }
+      { const wk = makeWalker(HAIR[i % HAIR.length], i); scene.add(wk.g); tr.walker = { ...wk, state: 'car', pts: [], i: 0, home: [], room: null }; }
       const si = ALL.indexOf(key);
       if (mode === 'return') { tr.d = this.stopD.handoff + 18; tr.stop = 'task'; tr.mode = 'drive'; }
       else {
@@ -195,6 +195,7 @@ export class Sim {
     }
   }
   place(tr, dt) {
+    if (tr.mode === 'devrun') return this.placeRun(tr);
     if (tr.offroad) return this.placeOff(tr);
     const f = this.w.at(tr.d, this.tmp);
     tr.g.position.copy(f.pos).addScaledVector(f.right, tr.lane);
@@ -217,6 +218,7 @@ export class Sim {
     if (tr.lot && this.lots[tr.lot]?.visit) { if (tr.mode === 'parkIn') return 'vào bãi đỗ'; if (tr.mode === 'parkOut') return 'ra đường';
       const ws = tr.walker.state; if (ws === 'in') return 'xuống xe → vào phòng'; if (ws === 'out') return 'về xe'; if (ws === 'car') return 'chuẩn bị ra';
       if (tr.lot === 'handoff') return 'chuẩn bị spec'; if (tr.lot === 'cafe') return '☕ nghỉ cà phê'; }
+    if (tr.mode === 'devrun') { const ws = tr.walker.state; if (tr.phase === 'in') return tr.ps > tr.rp.L - 10 ? 'vào bãi đỗ khu Dev' : 'qua cầu sang khu Dev'; if (tr.phase === 'park') return ws === 'in' ? 'đi bộ vào giao task' : ws === 'room' ? 'giao task cho dev 💻' : ws === 'out' ? 'về xe' : 'chuẩn bị ra'; if (tr.phase === 'rev') return 'lùi xe ra'; return tr.ps >= tr.rp.L - 0.5 ? 'chờ nhập làn' : 'về quán cà phê ☕'; }
     if (tr.mode === 'merge') return 'chờ nhập làn';
     if (tr.lot === 'task' && tr.wantOut) return 'về xe nhận task';
     if (tr.mode === 'parkIn') return 'vào bãi chờ';
@@ -224,10 +226,10 @@ export class Sim {
     if (tr.mode === 'parkOut') return 'ra nhận task';
     if (!t) return tr.mode === 'dwell' ? 'chờ task' : tr.stop === 'cafe' ? 'đi uống cà phê ☕' : 'xe trống · về bến';
     if (tr.mode === 'reverse') return tr.early ? 'quay lại sửa sớm' : 'quay xe sửa 😭';
-    if (tr.mode === 'wait') return 'chờ tàu';
+    if (tr.mode === 'wait') return 'chờ lên cầu';
     if (tr.mode === 'dwell' || tr.mode === 'parked') return { task: 'nhận task', research: 'đang research', design: tr.fixing ? `sửa lại v${t.version}` : (t.flow === 'std' ? `wireframe → UI v${t.version}` : `đang vẽ v${t.version}`), techreview: 'review sớm: PM + Dev', test: 'user test', review: 'chờ sếp duyệt', handoff: 'bàn giao dev' }[k] || '';
     if (tr.afterFix && tr.stop === tr.afterFix && tr.afterFix === 'review') return 'sửa xong → gửi lại';
-    return { research: 'đi research', design: 'đi vẽ', techreview: 'đi review sớm', test: 'đi test', review: 'gửi sếp', handoff: 'đã duyệt → cảng', task: '' }[k] || '';
+    return { research: 'đi research', design: 'đi vẽ', techreview: 'đi review sớm', test: 'đi test', review: 'gửi sếp', handoff: 'đã duyệt → bàn giao', task: '' }[k] || '';
   }
   tone(tr) {
     const t = tr.task; if (!t) return 'gray';
@@ -242,7 +244,8 @@ export class Sim {
       tr.lane += (tr.laneT - tr.lane) * Math.min(1, dt * 1.6);
       const rev = tr.mode === 'reverse';
       tr.revM.emissiveIntensity = rev ? 4 : 0; tr.revPoolM.opacity = rev ? 0.55 : 0;
-      if (tr.offroad) { this.updateOff(tr, dt); }
+      if (tr.mode === 'devrun') { this.updateRun(tr, dt); }
+      else if (tr.offroad) { this.updateOff(tr, dt); }
       else if (tr.mode === 'drive') {
         if (!this.active(tr.stop, tr)) tr.stop = this.next(tr, tr.stop);
         if (tr.stop === 'research' && tr.task?.skipResearch) tr.stop = 'design';
@@ -271,9 +274,8 @@ export class Sim {
         if (tr.dwellKey === 'task' && tr.task && this.gantry.busy === tr) this.gantryAnim(tr, dt);
         if (tr.timer <= 0) this.leave(tr);
       } else if (tr.mode === 'wait') {
-        if (this.ship.state === 'docked' && !this.crane.busy && this.ship.cargo.length < 8) { tr.mode = 'dwell'; tr.dwellKey = 'handoff'; tr.timer = 3.7; this.crane.busy = tr; this.crane.t = 0; }
+        if (this.freeDevSlot() >= 0 && !this.trucks.some(o => o.mode === 'devrun' && o.phase === 'in' && o.ps < 8)) this.startRun(tr);
       }
-      if (tr.mode === 'dwell' && tr.dwellKey === 'handoff' && this.crane.busy === tr) this.craneAnim(tr, dt);
       this.place(tr, dt); this.stepWalker(tr, dt);
       tr.status = this.status(tr);
     }
@@ -294,7 +296,7 @@ export class Sim {
       const tr = this.trucks.filter(o => o.lot === key && o.mode === 'parked' && o.ready).sort((a, b) => a.parkedAt - b.parkedAt)[0];
       if (tr && clear) { tr.mode = 'parkOut'; tr.path = V.outPath[tr.slot]; tr.pl = tr.path.getLength(); tr.ps = 0; }
     }
-    this.updateShip(dt); this.updateIsland(dt); this.updateLive(dt);
+    this.updateIsland(dt); this.updateLive(dt);
     // barrier: open while an approved truck is leaving review
     const b = this.w.anim.barrier, want = this.trucks.some(tr => tr.approvedAt && this.t - tr.approvedAt < 3.2) ? 1 : 0;
     b.open += (want - b.open) * Math.min(1, dt * 3); b.arm.rotation.x = 0; b.arm.rotation.z = 0; b.arm.rotation.x = b.open * 1.35;
@@ -344,9 +346,6 @@ export class Sim {
       }
       this.hooks.stamp(tr, true); this.hooks.event(`✅ #${t.no} ${t.feature.name}: sếp duyệt`, 'good'); this.log(tr, 'Sếp duyệt ✔'); tr.approvedAt = this.t;
     }
-    if (key === 'handoff') {
-      this.crane.busy = null; tr.task = null; tr.cargo = null; tr.stop = 'cafe'; tr.visited = null; tr.mode = 'drive'; tr.v = 0; tr.afterFix = null; return;
-    }
     if (key === 'task') this.gantry.busy = null;
     if (key === 'design' && tr.fixing) {
       const L = this.w.L, blocked = tr.lane < 0 && this.trucks.some(o => o !== tr && o.lane > 0 && Math.min(Math.abs(o.d - tr.d), L - Math.abs(o.d - tr.d)) < 6.5);
@@ -367,51 +366,85 @@ export class Sim {
     else if (tr.cargo.parent !== tr.g) { tr.g.add(tr.cargo); tr.cargo.position.set(0, TRAILER_TOP + CH / 2, 0); tr.cargo.rotation.set(0, 0, 0); this.log(tr, 'Cẩu file lên xe, lên đường'); }
   }
 
-  // ship-to-shore crane: truck → ship slot
-  craneAnim(tr, dt) {
-    const H = this.w.anim.handoff, k = (this.crane.t += dt), slot = H.slots[this.ship.cargo.length], dockZ = H.SHIP_DOCK.z;
-    const topY = H.STS - 1.0, grabY = TRAILER_TOP + CH + 0.16, liftY = 7.5, landY = slot.y + CH / 2 + 0.08;
-    const sx = slot.x, sz = dockZ + slot.z;
-    const x = lerp(0, sx, eIO(W01(1.1, 2.2, k))), z = k < 1.1 ? LANE : lerp(LANE, sz, eIO(W01(1.1, 2.2, k)));
-    const y = k < 0.5 ? lerp(topY, grabY, eIO(W01(0, 0.5, k))) : k < 1.1 ? lerp(grabY, liftY, eIO(W01(0.5, 1.1, k))) : k < 2.2 ? liftY : k < 3.0 ? lerp(liftY, landY, eIO(W01(2.2, 3.0, k))) : lerp(landY, topY, eIO(W01(3.05, 3.6, k)));
-    H.crane.position.x = x; H.sts.position.z = z; H.stsSpreader.position.y = y;
-    for (const c of H.stsCables) { const len = H.STS - 0.15 - y; c.scale.y = Math.max(0.01, len); c.position.y = y + len / 2; }
-    if (k >= 0.5 && k < 3.0 && tr.cargo) { if (tr.cargo.parent !== H.group) { H.group.add(tr.cargo); tr.cargo.rotation.set(0, 0, 0); } tr.cargo.position.set(x, y - 0.08 - CH / 2, z); }
-    if (k >= 3.0 && tr.cargo && tr.cargo.parent === H.group) {
-      H.ship.add(tr.cargo); tr.cargo.position.copy(slot);
-      const t = tr.task; t.feature.status = 'dev'; t.feature.taken = false; this.stats.shipped++; this.ms[t.flow].shipped++;
-      this.ship.cargo.push({ mesh: tr.cargo, task: t }); if (this.ship.firstLoad === null) this.ship.firstLoad = this.t;
-      this.log(tr, 'Bàn giao lên tàu DEV TEAM'); this.hooks.event(`🚢 #${t.no} ${t.feature.name}: đã bàn giao dev`, 'info');
-      tr.cargo = null;
-    }
+  // lộ trình xe designer: trạm bàn giao → rẽ trái lên cầu → bãi đỗ khu Dev (người xuống xe đi bộ vào giao task) → lùi ra → qua cầu về → nhập lại đường chính, đi quán cà phê
+  devRoutes() {
+    if (this._routes) return this._routes;
+    const B = this.w.bridgeDev, D = this.w.devLot, lp = D.lp, d0 = this.stopD.handoff, L = this.w.L, I = D.laneIn, O = D.laneOut, A = D.slotA;
+    const road = (dd, lane) => { const f = this.w.at(((d0 + dd) % L + L) % L); return f.pos.clone().addScaledVector(f.right, lane).setY(0); };
+    const q = (s, o) => { const a = B.at(s); return a.p.clone().addScaledVector(a.r, o); };
+    const curve = pts => { const c = new THREE.CatmullRomCurve3(pts, false, 'centripetal'); return { c, L: c.getLength() }; };
+    const there = [road(0, LANE), road(1.2, 0.2)]; for (let s = 1.5; s <= B.L - 1.5; s += 3) there.push(q(s, 0.9));
+    const back = []; for (let s = B.L - 2.5; s >= 1.5; s -= 3) back.push(q(s, -0.9));
+    const rejoin = 7;
+    const routes = D.slotsB.map(bk => ({
+      in: curve([...there, lp(0.7, 0.7), lp(I, -1.4), lp(I, bk + 3.0), lp(I + 0.8, bk + 1.0), lp(A - 0.9, bk), lp(A, bk)]),
+      rev: curve([lp(A, bk), lp(A - 1.0, bk), lp(I, bk - 1.0), lp(O + 0.3, bk - 2.6), lp(O, bk - 3.2)]),
+      out: curve([lp(O, bk - 3.2), lp(O, bk - 1.0), lp(O, -2.4), lp(0.1, -1.2), q(B.L - 1.0, -0.9), ...back, road(2.6, -0.2), road(4.6, LANE * 0.9), road(rejoin, LANE)]),
+      bk }));
+    return (this._routes = { routes, rejoinD: (d0 + rejoin) % L, tg: new THREE.Vector3() });
   }
-
-  updateShip(dt) {
-    const S = this.ship, H = this.w.anim.handoff; S.t += dt;
-    const sail = (from, to, k) => { H.ship.position.lerpVectors(from, to, eIO(k)); H.ship.rotation.y = Math.sin(k * Math.PI) * 0.35 * (to === H.SHIP_ISLE ? 1 : -1); H.ship.position.y = Math.sin(this.t * 1.2) * 0.06; };
-    if (S.state === 'docked') {
-      H.ship.position.y = Math.sin(this.t * 1.2) * 0.04;
-      const full = S.cargo.length >= 3 || (S.cargo.length && this.t - S.firstLoad > 16);
-      if (full && !this.crane.busy) { S.state = 'out'; S.t = 0; this.hooks.event(`⛴ Tàu chở ${S.cargo.length} file sang đảo Dev`, 'info'); }
-    } else if (S.state === 'out') { sail(H.SHIP_DOCK, H.SHIP_ISLE, Math.min(1, S.t / 6)); if (S.t >= 6) { S.state = 'unload'; S.t = 0; S.idx = 0; } }
-    else if (S.state === 'unload') {
-      const per = 1.1, i = Math.floor(S.t / per);
-      S.cargo.forEach((c, j) => { const k = clamp01((S.t - j * per) / per); c.mesh.scale.setScalar(1 - eIO(k)); });
-      while (S.idx < Math.min(i, S.cargo.length)) {
-        const { task: t } = S.cargo[S.idx++], f = t.feature;
-        const FL = FLOW[t.flow], pb = t.techChecked ? FL.bounceChecked : FL.bounce;
-        if (rnd() < pb) { f.status = 'redo'; f.redo++; this.stats.bounced++; this.ms[t.flow].bounced++; this.hooks.devPop(`💀 #${t.no} “cái này không code được”`); this.hooks.event(`💀 Dev trả #${t.no} ${f.name}: không code được`, 'bad'); }
-        else { f.status = 'dev'; this.island.push({ t, f, phase: 'build', timer: rr(5, 7) }); this.hooks.devPop(`💻 #${t.no} dev đang build`); }
-      }
-      if (S.t >= S.cargo.length * per + 0.4) { S.cargo.forEach(c => c.mesh.removeFromParent()); S.cargo = []; S.firstLoad = null; S.state = 'back'; S.t = 0; }
-    } else if (S.state === 'back') { sail(H.SHIP_ISLE, H.SHIP_DOCK, Math.min(1, S.t / 6)); if (S.t >= 6) { S.state = 'docked'; S.t = 0; H.ship.rotation.y = 0; H.ship.position.copy(H.SHIP_DOCK); } }
+  freeDevSlot() { return this.w.devLot.occ.indexOf(null); }
+  startRun(tr) {
+    const t = tr.task, R = this.devRoutes(), D = this.w.devLot, k = this.freeDevSlot();
+    D.occ[k] = tr; tr.devSlot = k; tr.route = R.routes[k];
+    tr.mode = 'devrun'; tr.phase = 'in'; tr.offroad = true; tr.rp = tr.route.in; tr.ps = 0; tr.v = 0; tr.delivered = false;
+    if (t) { t.feature.status = 'dev'; t.feature.taken = false; this.stats.shipped++; this.ms[t.flow].shipped++;
+      this.log(tr, 'Bàn giao xong, lái xe qua cầu sang khu Dev'); this.hooks.event(`🚗 #${t.no} ${t.feature.name}: lái xe qua cầu giao dev`, 'info'); }
+  }
+  placeRun(tr) {
+    const R = this._routes, u = Math.min(1, tr.ps / tr.rp.L), p = tr.rp.c.getPointAt(u), tg = tr.rp.c.getTangentAt(u, R.tg);
+    if (tr.phase === 'rev') tg.negate();
+    tr.g.position.copy(p); tr.g.rotation.set(0, Math.atan2(-tg.z, tg.x), Math.atan2(tg.y, Math.hypot(tg.x, tg.z)), 'YZX');
+    tr.wheels.forEach(w => w.rotation.z = -tr.dist / 0.3);
+  }
+  devRoomPts(n) {
+    const r = this.w.devRoom; r.g.updateMatrixWorld(true); const w = v => r.g.localToWorld(v.clone());
+    return { out: w(new V3(0, 0, -r.d / 2 - 0.9)), in: w(new V3(0, 0.22, -r.d / 2 + 0.7)), spot: w(r.spots[n % r.spots.length]) };
+  }
+  updateRun(tr, dt) {
+    const R = this._routes, L = this.w.L, k = tr.walker;
+    if (tr.phase === 'park') {   // xe đã đỗ: designer cầm thẻ task đi bộ vào phòng DEV TEAM, giao xong đi bộ về xe
+      if (k.state === 'room') { tr.roomT += dt;
+        if (!tr.delivered && tr.roomT > 1.0) { tr.delivered = true; const t = tr.task;
+          if (t) { const f = t.feature, FL = FLOW[t.flow], pb = t.techChecked ? FL.bounceChecked : FL.bounce;
+            if (rnd() < pb) { f.status = 'redo'; f.redo++; this.stats.bounced++; this.ms[t.flow].bounced++; this.hooks.devPop(`💀 #${t.no} “cái này không code được”`); this.hooks.event(`💀 Dev trả #${t.no} ${f.name}: không code được`, 'bad'); }
+            else { this.island.push({ t, f, phase: 'build', timer: rr(5, 7) }); this.hooks.devPop(`💻 #${t.no} dev đang build`); }
+            this.log(tr, 'Đi bộ vào phòng DEV TEAM giao task'); }
+          tr.task = null; k.cardM.color.set('#b8c0c5'); k.cardM.emissive.set('#000'); }
+        if (tr.roomT > 2.4) this.goBack(tr); }
+      else if (k.state === 'car' && tr.delivered && !this.trucks.some(o => o !== tr && o.mode === 'devrun' && o.phase === 'rev')) {
+        tr.phase = 'rev'; tr.rp = tr.route.rev; tr.ps = 0; tr.v = 0; }
+      return;
+    }
+    // giữ khoảng cách với xe phía trước cùng chặng (chặng vào: cùng đoạn cầu; chặng về: cùng đoạn cầu về)
+    let gap = 1e9; if (tr.phase !== 'rev') for (const o of this.trucks) if (o !== tr && o.mode === 'devrun' && o.phase === tr.phase) { const g = o.ps - tr.ps; if (g > 0.01 && g < gap) gap = g; }
+    const left = tr.rp.L - tr.ps, vtop = tr.phase === 'rev' ? 1.8 : tr.phase === 'in' && left < 12 ? 3 : 6;
+    let vmax = Math.min(vtop, Math.sqrt(2 * 4 * Math.max(0, left)) + 0.2, Math.sqrt(2 * 6 * Math.max(0, gap - 5.5)));
+    if (tr.phase === 'out' && left < 3) {   // nhập lại đường chính khi làn trống
+      const busy = this.trucks.some(o => { if (o === tr || o.offroad || o.lane <= 0) return false; const g = ((R.rejoinD - o.d) % L + L) % L; return g < 10 || g > L - 6; });
+      if (busy) vmax = Math.min(vmax, Math.sqrt(2 * 4 * Math.max(0, left - 1.5)));
+    }
+    tr.v += Math.max(-10 * dt, Math.min(4 * dt, vmax - tr.v));
+    const step = Math.max(0, Math.min(left, tr.v * dt)); tr.ps += step; tr.dist += tr.phase === 'rev' ? -step : step;
+    if (left - step > 0.03) return;
+    if (tr.phase === 'in') {   // đỗ xong: tháo thẻ trên nóc xe, người xuống xe cầm task đi vào
+      tr.phase = 'park'; tr.v = 0; tr.roomT = 0; this.placeRun(tr);
+      if (tr.cargo) { tr.cargo.removeFromParent(); tr.cargo = null; }
+      const D = this.w.devLot, bk = tr.route.bk, Rm = this.devRoomPts(tr.devSlot);
+      tr.g.updateMatrixWorld(true); const door = tr.g.localToWorld(new V3(-0.2, 0, 1.25)); door.y = 0.06;
+      const pts = [door, D.lp(D.laneIn + 0.4, bk + 1.5), D.lp(D.laneIn + 0.4, -3.2), Rm.out, Rm.in, Rm.spot];
+      k.home = pts; k.room = 'dev'; k.cardM.color.set(tr.task?.color || '#b8c0c5'); k.cardM.emissive.set(tr.task?.color || '#000'); this.walkTo(tr, pts, 'in');
+      this.log(tr, 'Đỗ ở bãi xe khu Dev, đi bộ vào giao task');
+    } else if (tr.phase === 'rev') { tr.phase = 'out'; tr.rp = tr.route.out; tr.ps = 0; tr.v = 0; this.w.devLot.occ[tr.devSlot] = null; tr.devSlot = null; }
+    else { tr.mode = 'drive'; tr.offroad = false; tr.phase = null; tr.route = tr.rp = null; tr.d = R.rejoinD; tr.lane = tr.laneT = LANE; tr.v = 2;
+      tr.task = null; tr.cargo = null; tr.stop = 'cafe'; tr.visited = null; tr.afterFix = null; }
   }
 
   // dev island → QC island: build → design QA (standard only) → cross the bridge → QC test → release from the lighthouse
   updateIsland(dt) {
     const R = this.w.anim.handoff.releaseM, Q = this.w.qc; R.emissiveIntensity = Math.max(0.6, R.emissiveIntensity - dt * 1.5);
     Q.beamM.opacity = 0.14 + Math.min(0.5, (R.emissiveIntensity - 0.6) * 0.12);
-    const toQC = j => { j.phase = 'toqc'; j.timer = 3.2; j.f.status = 'qc'; this.hooks.devPop(`🌉 #${j.t.no} qua cầu sang QC`);
+    const toQC = j => { j.phase = 'toqc'; j.timer = 3.2; j.f.status = 'qc'; this.hooks.devPop(`🚶 #${j.t.no} sang khu QC`);
       j.card = container(j.t.color, `#${j.t.no}`); j.card.scale.setScalar(0.7); this.scene.add(j.card); };
     for (const j of this.island) {
       j.timer -= dt;

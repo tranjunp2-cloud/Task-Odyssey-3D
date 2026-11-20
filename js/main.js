@@ -4,6 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { STATIONS, FSTATUS } from './data.js';
 import { buildWorld } from './world.js';
+import { buildAmbient } from './ambient.js';
 import { PM } from './props.js';
 import { GAMES, openGame, isGameOpen } from './games.js';
 import { Sim, headM, tailM, beamM } from './sim.js';
@@ -34,6 +35,7 @@ sun.castShadow = true; sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.
 const camera = new THREE.PerspectiveCamera(30, 1, 0.5, 1200);
 
 const W = buildWorld(scene);
+const ambient = buildAmbient(scene);
 
 // ---------- labels ----------
 const label = (html, cls, parent, y, onClick) => {
@@ -86,8 +88,8 @@ const chips = sim.trucks.map(tr => {
 const controls = new MapControls(camera, labels.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.08; controls.screenSpacePanning = false;
 controls.maxPolarAngle = 1.25; controls.minPolarAngle = 0.35;
-const OVERVIEW_WIDE = { target: new THREE.Vector3(22, 0, 20), dist: 268, polar: 0.9, az: -0.42 };
-const OVERVIEW_TALL = { target: new THREE.Vector3(24, 0, 22), dist: 360, polar: 0.8, az: -0.42 + Math.PI / 2 };
+const OVERVIEW_WIDE = { target: new THREE.Vector3(34, 0, 24), dist: 292, polar: 0.9, az: -0.42 };
+const OVERVIEW_TALL = { target: new THREE.Vector3(36, 0, 26), dist: 400, polar: 0.8, az: -0.42 + Math.PI / 2 };
 const overview = () => (innerWidth / innerHeight < 0.8 ? OVERVIEW_TALL : OVERVIEW_WIDE);
 let mode = 'overview', current = null, followed = null, fly = null, charSel = null;
 const focusOf = tr => tr.walker.g.visible ? tr.walker.g.position : tr.g.position;   // follow the designer while they walk
@@ -115,7 +117,7 @@ function stationFocus(key) {
     const p = st.pos.clone().lerp(pc, 0.7), dir = st.right.clone().addScaledVector(st.tan, -0.35).normalize();
     return { p, az: Math.atan2(dir.x, dir.z), dist: 66 };
   }
-  if (key === 'user') return { p: W.user.pos.clone().setY(16), az: -0.55, dist: 112 };
+  if (key === 'user') return { p: W.user.pos.clone().setY(14), az: -0.55, dist: 150 };
   if (key === 'dev' || key === 'qc' || !W.rooms[key]) { const dir = st.right.clone().addScaledVector(st.tan, -0.45).normalize(); return { p: st.pos.clone().setY(key === 'qc' ? 7 : 0), az: Math.atan2(dir.x, dir.z), dist: key === 'qc' ? 66 : 40 }; }
   // look at the department from the road side: lot + open front of the room in frame
   const c = new THREE.Vector3(); W.rooms[key].g.getWorldPosition(c);
@@ -199,8 +201,8 @@ function renderPanel() {
     if (current === 'user') { const bugs = sim.features.filter(f => f.userBug), live = sim.features.filter(f => ['done', 'improve'].includes(f.status));
       extra += `<div class="badges"><span>👥 ${sim.users.toLocaleString('vi-VN')} user</span><span>✅ ${live.length} tính năng đang live</span><span class="${bugs.length ? 'hot' : ''}">⚠ ${bugs.length} lỗi đang mở</span></div>
         <h4>User báo lỗi <em>${bugs.length}</em></h4><ul class="tasks">${bugs.length ? bugs.map(f => { const tr = sim.trucks.find(t => t.task?.feature === f); return `<li><button ${tr ? `data-truck="${tr.i}"` : ''}><i class="dot red"></i><b>${f.id}</b> ${f.bugMsg}${f.reports > 1 ? ` <em>×${f.reports}</em>` : ''}<span>${tr ? 'đang hotfix · #' + tr.task.no : 'chờ nhận hotfix'}</span></button></li>`; }).join('') : '<li class="muted">Chưa có lỗi nào, user đang dùng ổn</li>'}</ul>`; }
-    if (current === 'dev' || current === 'qc') { const js = islandJobs(current); extra += `<h4>${current === 'dev' ? 'Trên đảo Dev' : 'Đang ở QC'} <em>${js.length}</em></h4><ul class="tasks">${js.length ? js.join('') : '<li class="muted">Chưa có bản build nào</li>'}</ul>`; }
-    if (current === 'dev' || current === 'handoff') extra += `<h4>Tàu DEV TEAM</h4><p class="muted">${{ docked: 'Đang cập cảng', out: 'Đang chạy ra đảo Dev', unload: 'Đang dỡ file ở đảo Dev', back: 'Đang quay về cảng' }[sim.ship.state]} · ${sim.ship.cargo.length} file trên tàu</p>`;
+    if (current === 'dev' || current === 'qc') { const js = islandJobs(current); extra += `<h4>${current === 'dev' ? 'Ở khu Dev' : 'Đang ở QC'} <em>${js.length}</em></h4><ul class="tasks">${js.length ? js.join('') : '<li class="muted">Chưa có bản build nào</li>'}</ul>`; }
+    if (current === 'dev' || current === 'handoff') { const run = sim.trucks.filter(t => t.mode === 'devrun'), go = run.filter(t => t.task).length; extra += `<h4>Cầu bàn giao → Dev</h4><p class="muted">${run.length ? `${go} xe đang chở task sang khu Dev · ${run.length - go} xe đang về quán cà phê` : 'Chưa có xe nào trên cầu'}</p>`; }
     panel.innerHTML = `
       <button class="x" data-act="close" aria-label="Đóng">×</button>
       <div class="kicker">Bước ${s.n} / ${String(STATIONS.length).padStart(2, '0')}</div><h2>${s.name}</h2><p>${s.desc}</p>
@@ -224,7 +226,7 @@ function renderPanel() {
       <div class="nav"><button data-act="map">Bản đồ</button></div>`;
   }
 }
-const JOB = { build: 'dev đang build', qa: 'design QA', toqc: 'đang qua cầu sang QC', qc: 'QC đang test' };
+const JOB = { build: 'dev đang build', qa: 'design QA', toqc: 'đang sang khu QC', qc: 'QC đang test' };
 const islandJobs = key => sim.island.filter(j => (key === 'qc') === (j.phase === 'toqc' || j.phase === 'qc')).map(j => `<li><button><i class="dot yellow"></i><b>#${j.t.no}</b> ${j.f.name}<span>${JOB[j.phase]}${j.bugs ? ` · lỗi ${j.bugs}` : ''}</span></button></li>`);
 // plain-language "what is this task doing right now"
 function nowText(tr) {
@@ -373,13 +375,14 @@ labels.domElement.addEventListener('pointermove', e => {
 
 // ---------- minimap ----------
 const mm = $('#minimap'), mx = mm.getContext('2d');
-const MB = { x0: -82, x1: 122, z0: -68, z1: 104 };
+const MB = { x0: -82, x1: 152, z0: -68, z1: 130 };
 const mmXY = (x, z) => [(x - MB.x0) / (MB.x1 - MB.x0) * mm.width, (z - MB.z0) / (MB.z1 - MB.z0) * mm.height];
 function drawMinimap() {
   const w = mm.width, h = mm.height; mx.clearRect(0, 0, w, h);
   mx.fillStyle = '#0e3b5c'; mx.fillRect(0, 0, w, h);
   mx.fillStyle = '#d6d9c3'; mx.beginPath(); W.islandPoly.forEach(([x, z], i) => { const [a, b] = mmXY(x, z); i ? mx.lineTo(a, b) : mx.moveTo(a, b); }); mx.fill();
-  for (const [c, r] of [[W.devIsland, 10], [W.qcIsland, 11], [W.user.pos, 18]]) { const [ix, iz] = mmXY(c.x, c.z); mx.beginPath(); mx.arc(ix, iz, r / (MB.x1 - MB.x0) * w, 0, 7); mx.fill(); }
+  mx.beginPath(); W.devQcHull.forEach(([x, z], i) => { const [a, b] = mmXY(x, z); i ? mx.lineTo(a, b) : mx.moveTo(a, b); }); mx.fill();
+  for (const [c, r] of [[W.user.pos, W.user.radius + 2]]) { const [ix, iz] = mmXY(c.x, c.z); mx.beginPath(); mx.arc(ix, iz, r / (MB.x1 - MB.x0) * w, 0, 7); mx.fill(); }
   mx.strokeStyle = '#8f877a'; mx.lineWidth = 3; mx.beginPath(); W.roadPts.forEach((p, i) => { const [a, b] = mmXY(p.x, p.z); i ? mx.lineTo(a, b) : mx.moveTo(a, b); }); mx.stroke();
   for (const s of STATIONS) { const [a, b] = mmXY(W.stations[s.key].pos.x, W.stations[s.key].pos.z); mx.fillStyle = s.key === current ? '#ff5a1f' : '#0b1a24'; mx.beginPath(); mx.arc(a, b, 7, 0, 7); mx.fill(); mx.fillStyle = '#fff'; mx.font = '700 8px JetBrains Mono'; mx.textAlign = 'center'; mx.fillText(s.n, a, b + 3); }
   const TONE = { red: '#ff4d3d', yellow: '#f5c518', green: '#2bd47d', gray: '#c9cdd0' };
@@ -419,7 +422,7 @@ renderer.setAnimationLoop(() => {
   scene.background.copy(DAY_BG).lerp(NIGHT_BG, night); scene.fog.color.copy(scene.background);
   hemi.intensity = THREE.MathUtils.lerp(1.3, 0.13, night); scene.environmentIntensity = THREE.MathUtils.lerp(0.35, 0.02, night);
   W.night.screens.forEach(m => m.emissiveIntensity = 0.85 + night * 0.6);
-  W.night.roomLights.forEach(l => l.intensity = night * 45); W.designNight(night); W.lighthouseLight.intensity = night * 120; PM.strip.emissiveIntensity = 0.3 + night * 2.5; W.tick(sim.t, camera); W.tickPlots(sim.t, sim.features); sun.intensity = THREE.MathUtils.lerp(1.7, 0.1, night);
+  W.night.roomLights.forEach(l => l.intensity = night * 45); W.designNight(night); W.lighthouseLight.intensity = night * 120; PM.strip.emissiveIntensity = 0.3 + night * 2.5; W.tick(sim.t, camera); ambient.tick(sim.t, night); W.tickPlots(sim.t, sim.features); sun.intensity = THREE.MathUtils.lerp(1.7, 0.1, night);
   sun.color.setRGB(1, 1 - night * 0.2, 1 - night * 0.05);
   W.mats.lamp.emissiveIntensity = night * 2.4; W.mats.pool.opacity = night * 0.85; W.night.windows.forEach(m => m.emissiveIntensity = night * 1.3);
   W.mats.glow.emissiveIntensity = 0.4 + night * 1.6; headM.emissiveIntensity = night * 3; tailM.emissiveIntensity = night * 2.5; beamM.opacity = night * 0.5; W.ocean.uniforms.uNight.value = night;
