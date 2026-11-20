@@ -208,3 +208,5 @@ body.far .arcade-label small { display: none; }
 .ghex .opt { background: rgba(255,255,255,.08); border: 1px solid var(--line); border-radius: 10px; padding: 11px; font: 800 15px var(--mono); color: #fff; }
 .ghex .opt:hover { background: rgba(255,255,255,.16); } .ghex .opt.ok { background: #2bd47d; color: #0b1a24; } .ghex .opt.no { background: #ff3b1f; }
 .ghex .res { color: #fff; position: absolute; bottom: 0; }
+/* bản đồ toàn cảnh: ẩn tag các khu cho gọn, chỉ hiện khi zoom vào gần / vào chi tiết (hoặc khi rê chuột vào khu đó) */
+body[data-mode="overview"].far .st-label:not(.hover):not(.on), body[data-mode="overview"].far .arcade-label, body[data-mode="overview"].far .useralert { display: none; }
